@@ -1,5 +1,5 @@
 // Sea Board Designer: UI wiring (menubar, config menus, tools, sidebar, jobs, save/load).
-import { Design, round2 } from "./design.js";
+import { Design, round2, passagePoints } from "./design.js";
 import { View, fieldHit, fieldLabels, boardText } from "./render.js";
 
 // ================================================================ small helpers
@@ -48,8 +48,9 @@ const app = {
   cfg: null, mainCfg: null, comments: {}, design: null, view: null,
   tool: "select",
   sel: { tiles: new Set(), field: null, passage: null, sea: null },
-  vo: Object.assign({ art: true, fill: "sea", fillAlpha: 0.28, borders: true, numbers: true, circles: true,
-    labels: true, passages: true, wraps: true, fields: true, problems: true, unassigned: false }, store("vo") || {}),
+  // editing aids, screen only (what the board shows is in design.look and compose.*)
+  vo: Object.assign({ problems: true, unassigned: false }, store("aids") || {}),
+  beforeLook: store("vo") || {},    // View settings from before they moved into the design
   opts: Object.assign({ iterations: 12, relaxNeighbours: true, scope: "same", splitNeighbours: false, newTileArea: 0,
     brushMm: 3, protect: false, lockTile: 0, linkKind: "canal", autosave: true,
     field: { shape: "rounded", w: 20, h: 20, kind: "field", color: "#c8743a", label: "" } }, store("opts") || {}),
@@ -72,9 +73,10 @@ const TOOLS = [
 
 const SECTION_TITLES = { board: "Board", map: "Map", tiles: "Tiles", seas: "Seas", passages: "Passages",
   art: "Art", compose: "Compose", day_track: "Day track", webtool: "Frame" };
-const LIVE_KEYS = ["tiles.pawn_diameter_mm", "tiles.min_wrap_edge_mm", "tiles.border_noise", "tiles.noise_scale_mm",
+const EDIT_KEYS = ["tiles.border_noise", "tiles.noise_scale_mm"];
+const LIVE_KEYS = ["tiles.pawn_diameter_mm", "tiles.min_wrap_edge_mm",
   "webtool.frame_color", "webtool.snap_mm", "day_track.panel_color"];
-const LIVE_PREFIX = ["compose", "passages"];
+const LIVE_PREFIX = ["compose"];
 const FIELD_KINDS = ["track", "event", "harbour", "deck", "card slot", "score", "threat", "reserve", "storage", "rule"];
 
 // ================================================================ toast / status / dialogs
@@ -129,8 +131,9 @@ async function boot() {
   try {
     const st = await api("/api/state");
     app.cfg = st.config; app.mainCfg = st.main_config; app.comments = st.comments; app.paths = st.paths; app.text = st.board_text;
+    app.lookDefault = st.look_default; app.lookBefore = st.look_before;
     app.mainBoard = st.main_board;
-    if (!app.text) {        // the page is new but the Python server still runs the old code
+    if (!app.text || !app.lookDefault) {        // the page is new but the Python server still runs the old code
       toast("The tool was updated: restart the server (run.sh), then reload this page.", true);
       return;
     }
@@ -158,16 +161,17 @@ async function openDesign(name) {
   toast(`Opening ${name}…`);
   const enc = encodeURIComponent(name);
   const [meta, labels, water] = await Promise.all([api(`/api/designs/${enc}`), api(`/api/designs/${enc}/labels`), api(`/api/designs/${enc}/water`)]);
+  meta.look = meta.look ? { ...app.lookDefault, ...meta.look } : lookFromBefore();
   const d = new Design(meta, new Int16Array(labels), new Uint8Array(water));
   app.design = d;
   app.sel = { tiles: new Set(), field: null, passage: null, sea: null };
   d.setNoise(app.cfg.tiles);
-  d.syncConfigPassages(app.cfg.passages);
   d.dirty = false;
   d.on(onDesignChange);
   d.ensureAnalysis(app.cfg);
   app.view.setDesign(d);
-  app.view.setArt(meta.has_art ? `/api/designs/${enc}/art.jpg?v=${Date.now()}` : null);
+  updateArt(true);
+  await updateFont();
   showEmpty(false);
   updateDocInfo();
   refreshSidebar();
@@ -175,13 +179,47 @@ async function openDesign(name) {
   toast(`Opened ${name}: ${d.meta.tiles.length} tiles, ${d.meta.fields.length} fields`);
 }
 
+// designs from before View moved into the design keep what this browser showed (circles: off, as decided)
+function lookFromBefore() {
+  const was = app.beforeLook, look = { ...app.lookBefore };
+  for (const k of ["borders", "passages", "wraps", "fields", "fill"]) if (was[k] !== undefined) look[k] = was[k];
+  if (was.fillAlpha !== undefined) look.fill_opacity = was.fillAlpha;
+  return look;
+}
+
+// names are italic only where the export will have an italic font
+async function updateFont() {
+  const family = app.cfg.compose.font;
+  if (app.fontAsked === family) return;
+  app.fontAsked = family;
+  try {
+    const got = await api("/api/font?family=" + encodeURIComponent(family));
+    if (app.cfg.compose.font !== family) return;
+    app.italic = got.italic;
+    app.view.requestDraw();
+  } catch { app.fontAsked = null; }
+}
+
+function updateArt(force) {
+  const d = app.design;
+  if (!d) return;
+  const art = app.cfg.compose.map_art;
+  const file = art === "none" ? null : art === "art" && d.meta.has_painting ? "painting" : d.meta.has_art ? "art" : null;
+  const key = `${d.meta.name}/${file}`;
+  if (!force && key === app.artKey) return;
+  app.artKey = key;
+  app.view.setArt(file ? `/api/designs/${encodeURIComponent(d.meta.name)}/${file}.jpg?v=${Date.now()}` : null);
+}
+
 async function saveDesign(quiet) {
   const d = app.design;
   if (!d) return;
+  if (!d.tx) d.ensureAnalysis(app.cfg);     // pawn spots of the last edit
+  const version = d.version;
   const enc = encodeURIComponent(d.meta.name);
   await putJSON(`/api/designs/${enc}`, d.meta);
   await api(`/api/designs/${enc}/labels`, { method: "PUT", body: d.lab.buffer.byteLength === d.lab.byteLength ? d.lab : d.lab.slice() });
-  d.dirty = false;
+  if (d.version === version) d.dirty = false;
   updateDocInfo();
   if (!quiet) toast(`Saved ${d.meta.name}`);
 }
@@ -325,10 +363,11 @@ async function jobDone(j) {
     if (app.design && r.design === app.design.meta.name) {
       if (r.step === "samples") showSamples(r);
       else {
-        app.design.meta.has_art = true;
+        const full = r.step === "full";
+        app.design.meta[full ? "has_painting" : "has_art"] = true;
         app.design.meta.run_dir = r.run_dir;
-        app.view.setArt(`/api/designs/${encodeURIComponent(r.design)}/art.jpg?v=${Date.now()}`);
-        toast("New art loaded");
+        updateArt(true);
+        toast(full && app.cfg.compose.map_art !== "art" ? "Painting ready: set Compose > map_art to art to use it" : "New art loaded");
       }
     }
   } else if (j.kind === "export") showExport(r);
@@ -345,7 +384,7 @@ function showExport(r) {
   const base = `/api/designs/${enc}/export/`;
   dialog(`Export of ${r.design}`, [
     h("div", { class: "preview" }, h("img", { src: base + "board_preview.jpg?v=" + r.stamp })),
-    h("p", {}, "Composed with the main project's compose_board.py, plus frame and fields. Files in ", h("code", {}, r.dir)),
+    h("p", {}, "Composed with the main project's compose_board.py, plus your View settings, frame and fields. Files in ", h("code", {}, r.dir)),
     h("div", { class: "row" }, r.files.map((f) => h("a", { href: base + f + "?download=1", class: "chip", download: f.split("/").pop() }, f))),
   ]);
 }
@@ -377,11 +416,15 @@ async function exportDialog() {
   if (!app.design) return;
   const png = h("input", { type: "checkbox" });
   const r = await dialog("Export the board", [
+    $("#regen-flag").hidden ? null : h("p", { class: "warn" }, "Some changed settings (marked 'regenerate') need new tiles. This export keeps the tiles you see."),
     h("p", {}, "Saves the design, then builds board.svg, board.pdf and a preview with the main project's compose_board.py, adds the frame and the fields, and writes tiles.json (with neighbours, passages and fields) for later use in the game."),
     h("div", { class: "dlgrow" }, h("label", {}, "Print PNG"), h("label", {}, png, ` also board.png at ${app.cfg.compose.print_dpi} dpi (slow)`)),
-  ], [{ label: "Cancel", value: "cancel" }, { label: "Export", value: "ok", primary: true }]);
+  ].filter(Boolean), [{ label: "Cancel", value: "cancel" }, { label: "Export", value: "ok", primary: true }]);
   if (r !== "ok") return;
-  await saveDesign(true);
+  try {
+    await saveConfig();
+    await saveDesign(true);
+  } catch (e) { toast("Not exported, saving failed: " + e.message, true); return; }
   startJob({ kind: "export", name: app.design.meta.name, png: png.checked });
 }
 
@@ -427,7 +470,15 @@ const head = (t) => h("div", { class: "mhead" }, t);
 function buildMenus() {
   const nav = $("#menus");
   const noDesign = () => !app.design;
-  const toggle = (k, label, key) => item(label, () => { app.vo[k] = !app.vo[k]; store("vo", app.vo); app.view.rebuildOverlay(null); }, { checked: app.vo[k], keep: true, key });
+  const aid = (k, label) => item(label, () => { app.vo[k] = !app.vo[k]; store("aids", app.vo); app.view.rebuildOverlay(null); }, { checked: app.vo[k], keep: true });
+  const onBoard = (k, label) => {
+    const look = app.design?.meta.look;
+    return item(label, () => setLook(k, !app.design.meta.look[k]), { checked: !!look?.[k], keep: true, disabled: !look });
+  };
+  const setting = (path, label, on = true, off = false) => item(label, () => {
+    setPath(app.cfg, path, getPath(app.cfg, path) === off ? (typeof on === "function" ? on() : on) : off);
+    configChanged(path);
+  }, { checked: getPath(app.cfg, path) !== off, keep: true });
   nav.replaceChildren(
     menu("File", () => [
       item("Open design…", openDialog, { key: "Ctrl+O" }),
@@ -460,19 +511,20 @@ function buildMenus() {
       item("Zoom out", () => app.view.zoomAt(app.view.cw / 2, app.view.ch / 2, 0.8), { key: "−" }),
       item("Actual size (approx.)", () => { const b = app.view.toBoard(app.view.cw / 2, app.view.ch / 2); app.view.scale = 96 / 25.4; app.view.centerOn(...b); }),
       div(), head("On the board (also in export)"),
-      ...boardParts().map((b) => item(b.name, b.toggle, { checked: b.shown, disabled: noDesign() })),
-      div(), head("Layers (screen only)"),
-      toggle("art", "Map art"), toggle("borders", "Tile borders"), toggle("numbers", "Tile numbers"),
-      toggle("circles", "Pawn circles"), toggle("labels", "Sea names"), toggle("passages", "Passages"),
-      toggle("wraps", "Wrap-around arrows"), toggle("fields", "Fields"),
-      toggle("problems", "Highlight problems"), toggle("unassigned", "Show water without a tile"),
-      div(), head("Tile colour"),
+      setting("compose.map_art", "Map art", mapArtWhenOn, "none"),
+      onBoard("borders", "Tile borders"),
+      setting("compose.show_tile_numbers", "Tile numbers"),
+      onBoard("circles", "Pawn circles"),
+      setting("compose.show_sea_names", "Sea names"),
+      onBoard("passages", "Passages"), onBoard("wraps", "Wrap-around arrows"), onBoard("fields", "Fields"),
+      ...boardParts().map((b) => item(b.name, b.toggle, { checked: b.shown, keep: true, disabled: noDesign() })),
+      div(), head("Tile colour (also in export)"),
       ...[["sea", "By sea"], ["tile", "Every tile different"], ["none", "None (art only)"]].map(([v, l]) =>
-        item(l, () => { app.vo.fill = v; store("vo", app.vo); app.view.rebuildOverlay(null); }, { checked: app.vo.fill === v, keep: true })),
-      h("div", { class: "mitem", style: "cursor:default" }, h("span", { class: "check" }), "Opacity",
-        h("input", { type: "range", min: 0, max: 0.9, step: 0.02, value: app.vo.fillAlpha, style: "margin-left:auto",
-          oninput: (e) => { app.vo.fillAlpha = +e.target.value; store("vo", app.vo); app.view.rebuildOverlay(null); } })),
-    ]),
+        item(l, () => setLook("fill", v), { checked: app.design?.meta.look.fill === v, keep: true, disabled: noDesign() })),
+      app.design ? h("div", { class: "mitem", style: "cursor:default" }, h("span", { class: "check" }), "Opacity", opacitySlider()) : null,
+      div(), head("Editing aids (screen only)"),
+      aid("problems", "Highlight problems"), aid("unassigned", "Show water without a tile"),
+    ].filter(Boolean)),
     menu("Generate", () => [
       item("New tiles from config (new design)…", generateDialog),
       item("Import main project's board…", importMain),
@@ -490,6 +542,24 @@ function buildMenus() {
   );
 }
 
+function setLook(key, value) {
+  app.design.edit(`view: ${key}`, (m) => { m.look = { ...m.look, [key]: value }; });
+}
+
+function mapArtWhenOn() { return app.mainCfg.compose.map_art === "art" ? "art" : "guide"; }
+
+// one undo step per drag of the slider
+function opacitySlider() {
+  let d = null;
+  return h("input", { type: "range", min: 0, max: 0.9, step: 0.02, value: app.design.meta.look.fill_opacity, style: "margin-left:auto",
+    oninput: (e) => {
+      if (!d) { d = app.design; d.begin("view: opacity", false); }
+      d.meta.look = { ...d.meta.look, fill_opacity: +e.target.value };
+      app.view.rebuildOverlay(null);
+    },
+    onchange: (e) => { d?.commit(); d = null; e.target.blur(); } });
+}
+
 // ================================================================ config panels
 const getPath = (o, path) => path.split(".").reduce((x, k) => (x == null ? undefined : x[k]), o);
 function setPath(o, path, v) {
@@ -500,16 +570,22 @@ function setPath(o, path, v) {
 }
 function effectOf(path) {
   if (path.startsWith("art")) return "art";
+  if (EDIT_KEYS.includes(path)) return "edit";
   if (path.startsWith("day_track.") && !LIVE_KEYS.includes(path)) return "reset";
   if (LIVE_KEYS.includes(path) || LIVE_PREFIX.some((p) => path === p || path.startsWith(p + "."))) return "live";
   return "regen";
 }
 
 let cfgSaveTimer;
+async function saveConfig() {
+  clearTimeout(cfgSaveTimer);
+  // based_on: so that only values changed here are kept, and the rest keeps following the main config
+  await putJSON("/api/config", { config: app.cfg, based_on: app.mainCfg });
+}
 function configChanged(path) {
   clearTimeout(cfgSaveTimer);
   cfgSaveTimer = setTimeout(async () => {
-    try { await putJSON("/api/config", app.cfg); } catch (e) { toast("Config not saved: " + e.message, true); }
+    try { await saveConfig(); } catch (e) { toast("Config not saved: " + e.message, true); }
   }, 350);
   applyLiveConfig(path);
 }
@@ -519,11 +595,21 @@ function applyLiveConfig() {
   checkRegen();
   if (!d) return;
   d.setNoise(app.cfg.tiles);
-  d.syncConfigPassages(app.cfg.passages);
+  updateArt();
+  updateFont();
   d.analysisVersion = -1;
   d.ensureAnalysis(app.cfg);
   app.view.rebuildOverlay(null);
   scheduleSidebar();
+}
+
+// seas.names_nl only renames: a design that already has those names needs no new tiles
+function seasNeedNewTiles(d, now, then) {
+  const { names_nl: names = {}, ...rest } = now || {};
+  const { names_nl: before = {}, ...was } = then || {};
+  if (JSON.stringify(rest) !== JSON.stringify(was)) return true;
+  if (JSON.stringify(names) === JSON.stringify(before)) return false;
+  return Object.entries(names).some(([name, nl]) => { const sea = d.sea(name); return sea && sea.name_nl !== nl; });
 }
 
 function checkRegen() {
@@ -535,7 +621,7 @@ function checkRegen() {
     const fr = c.webtool.frame, dfr = b.frame || {};
     need = +c.board.width_mm !== +b.width_mm || +c.board.height_mm !== +b.height_mm ||
       ["top", "right", "bottom", "left"].some((k) => +fr[k] !== +(dfr[k] || 0)) ||
-      JSON.stringify(c.map) !== JSON.stringify(dc.map) || JSON.stringify(c.seas) !== JSON.stringify(dc.seas) ||
+      JSON.stringify(c.map) !== JSON.stringify(dc.map) || seasNeedNewTiles(d, c.seas, dc.seas) ||
       Object.keys(c.tiles).some((k) => effectOf("tiles." + k) === "regen" && JSON.stringify(c.tiles[k]) !== JSON.stringify(dc.tiles?.[k]));
   }
   $("#regen-flag").hidden = !need;
@@ -545,16 +631,18 @@ function configPanel(section) {
   const val = app.cfg[section];
   const wide = section === "passages";
   const resetBtn = h("button", { onclick: async () => {
+    if (section === "passages") { resetPassages(); return; }
+    await saveConfig();
     const r = await postJSON("/api/config/reset", { section });
-    app.cfg = r.config; applyLiveConfig(); openMenu?.rebuild();
+    app.cfg = r.config; app.mainCfg = r.main_config; applyLiveConfig(); openMenu?.rebuild();
     toast(`${SECTION_TITLES[section]} reset to the main project's values`);
   } }, section === "webtool" ? "Defaults" : "Reset to main");
   const head = h("div", { class: "cfghead" }, h("span", { class: "title" }, SECTION_TITLES[section]),
     section === "webtool" ? null : h("span", { class: "muted" }, "config.yaml › " + section), resetBtn);
   const body = h("div", { class: "cfgpanel" + (wide ? " wide" : "") }, head);
   const note = { board: "Changes need new tiles (Generate › New tiles).", map: "Changes need new tiles.",
-    seas: "Changes need new tiles.", passages: "Passages update live on the current design.",
-    compose: "Live in the view, used by Export.", day_track: "Each day is a field: click it on the board to edit it. The values below are the defaults for Reset day track.",
+    seas: "Changes need new tiles.", passages: "Passages are stored in this design. New boards start with the main project's passages.",
+    compose: "Applies at once to the editor and to Export.", day_track: "Each day is a field: click it on the board to edit it. The values below are the defaults for Reset day track.",
     art: "Used by Generate › art runs.", webtool: "Frame changes need new tiles (the map shrinks to make room)." }[section];
   if (note) body.append(h("div", { class: "muted", style: "margin-bottom:6px" }, note));
   if (section === "day_track" && app.design) {
@@ -607,6 +695,9 @@ function cfgRow(path, key, v) {
     ctl = h("span", { class: "ctl" }, col, txt);
   } else if (typeof v === "string" && (v.length > 50 || key.includes("prompt"))) {
     ctl = h("textarea", { rows: 3, onchange: (e) => set(e.target.value) }, v);
+  } else if (path === "compose.map_art") {
+    ctl = h("select", { onchange: (e) => set(e.target.value) },
+      [["guide", "guide (atlas map)"], ["art", "art (SDXL painting)"], ["none", "none"]].map(([o, l]) => h("option", { value: o, selected: o === v }, l)));
   } else if (path === "compose.language") {
     ctl = h("select", { onchange: (e) => set(e.target.value) }, ["en", "nl"].map((o) => h("option", { value: o, selected: o === v }, o)));
   } else if (path === "map.projection") {
@@ -615,33 +706,51 @@ function cfgRow(path, key, v) {
   const row = h("div", { class: "cfgrow" },
     h("label", { title: path }, key, h("span", { class: "diffdot", hidden: !differs, title: `main project: ${JSON.stringify(mainV)}` })),
     h("div", { class: "ctl" }, ctl),
-    h("span", { class: "badge " + eff, title: { live: "applies immediately", art: "used by art runs", reset: "used when you press Reset day track", regen: "needs new tiles" }[eff] }, { regen: "regenerate", reset: "on reset" }[eff] || eff),
+    h("span", { class: "badge " + eff, title: { live: "applies immediately, also in export", edit: "shapes tiles that are moved, split or grown from now on", art: "used by art runs", reset: "used when you press Reset day track", regen: "needs new tiles" }[eff] }, { regen: "regenerate", reset: "on reset", edit: "next edit" }[eff] || eff),
     app.comments[path] ? h("div", { class: "help" }, app.comments[path]) : null);
   return row;
 }
 
+function resetPassages() {
+  const d = app.design;
+  if (!d) return;
+  d.edit("reset passages", (m) => {
+    m.passages = [...app.mainCfg.passages.map((p) => d.passageFromConfig(p)), ...m.passages.filter((p) => p.source !== "config")];
+  });
+  openMenu?.rebuild();
+  toast("Passages are the main project's again; links drawn here are kept (Ctrl+Z undoes it)");
+}
+
 function passagesTable() {
-  const list = app.cfg.passages;
+  const d = app.design;
+  if (!d) return h("p", { class: "muted" }, "Open a design first.");
   const tbody = h("tbody");
-  const changed = () => configChanged("passages");
-  const ll = (arr) => arr.map((x) => +(+x).toFixed(3)).join(", ");
+  const ll = (mm) => d.proj.inverse(...mm).map((x) => +x.toFixed(3)).join(", ");
   const parseLL = (s) => { const p = s.split(",").map((x) => parseFloat(x)); return p.length === 2 && p.every((x) => !Number.isNaN(x)) ? p : null; };
-  const render = () => tbody.replaceChildren(...list.map((p, i) => h("tr", {},
-    h("td", {}, h("input", { type: "checkbox", checked: p.enabled !== false, onchange: (e) => { p.enabled = e.target.checked; changed(); } })),
-    h("td", {}, h("input", { type: "text", value: p.name, onchange: (e) => { p.name = e.target.value; changed(); } }),
+  const change = (i, key, value) => { d.edit("edit passage", (m) => { m.passages[i][key] = value; }); };
+  const point = (p, i, key) => h("input", { type: "text", value: ll(p[key]), style: "width:120px",
+    onchange: (e) => { const v = parseLL(e.target.value); if (v) change(i, key, d.proj.forward(...v)); } });
+  const render = () => tbody.replaceChildren(...d.meta.passages.map((p, i) => h("tr", {},
+    h("td", {}, h("input", { type: "checkbox", checked: p.enabled !== false, onchange: (e) => change(i, "enabled", e.target.checked) })),
+    h("td", {}, h("input", { type: "text", value: p.name, onchange: (e) => change(i, "name", e.target.value) }),
       app.comments["passages." + p.name] ? h("div", { class: "muted", style: "font-size:11px" }, app.comments["passages." + p.name]) : null),
-    h("td", {}, h("select", { onchange: (e) => { p.kind = e.target.value; changed(); } },
-      ["canal", "strait"].map((k) => h("option", { value: k, selected: p.kind === k }, k)))),
-    h("td", {}, h("input", { type: "text", value: ll(p.a), style: "width:110px", onchange: (e) => { const v = parseLL(e.target.value); if (v) { p.a = v; changed(); } } })),
-    h("td", {}, h("input", { type: "text", value: ll(p.b), style: "width:110px", onchange: (e) => { const v = parseLL(e.target.value); if (v) { p.b = v; changed(); } } })),
-    h("td", {}, h("button", { title: "remove", onclick: () => { list.splice(i, 1); changed(); render(); } }, "✕")),
+    h("td", {}, h("select", { onchange: (e) => change(i, "kind", e.target.value) },
+      ["canal", "strait", "route"].map((k) => h("option", { value: k, selected: p.kind === k }, k)))),
+    h("td", {}, point(p, i, "a_mm")),
+    h("td", {}, point(p, i, "b_mm")),
+    h("td", { class: "muted" }, (p.via_mm || []).length),
+    h("td", {}, h("button", { title: "remove", onclick: () => { d.edit("remove passage", (m) => m.passages.splice(i, 1)); render(); } }, "✕")),
   )));
   render();
   return h("div", {},
-    h("table", { class: "ptable" }, h("thead", {}, h("tr", {}, ["on", "name", "kind", "a (lon, lat)", "b (lon, lat)", ""].map((t) => h("th", {}, t)))), tbody),
+    h("table", { class: "ptable" }, h("thead", {}, h("tr", {}, ["on", "name", "kind", "a (lon, lat)", "b (lon, lat)", "points", ""].map((t) => h("th", {}, t)))), tbody),
     h("div", { class: "row", style: "margin-top:6px" },
-      h("button", { onclick: () => { list.push({ name: "New passage", kind: "strait", enabled: true, a: [0, 0], b: [1, 1] }); changed(); render(); } }, "+ Add passage"),
-      h("span", { class: "muted" }, "Tip: the Link tool draws passages directly on the map (stored in the design).")));
+      h("button", { onclick: () => {
+        d.edit("add passage", (m) => m.passages.push({ name: "New passage", kind: "strait", enabled: true, source: "manual",
+          a_mm: d.proj.forward(0, 0), b_mm: d.proj.forward(1, 1), via_mm: [] }));
+        render();
+      } }, "+ Add passage"),
+      h("span", { class: "muted" }, "To bend one: click it on the map, then drag its line. The Link tool draws new ones.")));
 }
 
 // ================================================================ toolbar + option bar
@@ -762,24 +871,28 @@ function snapField(f) {
 }
 
 function hitTest(p) {
-  const d = app.design, vo = app.vo;
-  if (vo.fields) for (let i = d.meta.fields.length - 1; i >= 0; i--) if (fieldHit(d.meta.fields[i], p.bx, p.by)) return { type: "field", f: d.meta.fields[i] };
-  if (vo.passages) {
-    for (const pa of d.meta.passages) {
-      if (!pa.enabled || pa.source === "config") continue;
-      for (const end of ["a_mm", "b_mm"]) if (Math.hypot(pa[end][0] - p.mx, pa[end][1] - p.my) < 2) return { type: "passageEnd", p: pa, end };
-    }
+  const d = app.design, look = d.meta.look, c = app.cfg.compose, sel = app.sel.passage;
+  if (look.fields) for (let i = d.meta.fields.length - 1; i >= 0; i--) if (fieldHit(d.meta.fields[i], p.bx, p.by)) return { type: "field", f: d.meta.fields[i] };
+  const near = (q, mm) => Math.hypot(q[0] - p.mx, q[1] - p.my) < mm;
+  const routes = look.passages
+    ? (d.analysis?.passageInfo || []).filter((pi) => pi.p === sel || (pi.p.enabled && pi.status === "ok" && pi.drawn)).map((pi) => pi.p) : [];
+  if (sel && routes.includes(sel)) {
+    const via = sel.via_mm || [], grab = Math.max(0.8, Math.min(2, 6 / app.view.scale));
+    for (let i = 0; i < via.length; i++) if (near(via[i], grab)) return { type: "waypoint", p: sel, i };
   }
-  if (vo.labels) for (const lb of app.view.labelBoxes) if (p.mx >= lb.x && p.mx <= lb.x + lb.w && p.my >= lb.y && p.my <= lb.y + lb.h) return { type: "label", sea: lb.sea };
-  if (vo.numbers || vo.circles) {
+  for (const pa of routes) {
+    // ends can be dragged at once on drawn links, on the others after selecting them
+    if (pa !== sel && pa.source === "config") continue;
+    for (const end of ["a_mm", "b_mm"]) if (near(pa[end], pa === sel ? 1.6 : 2)) return { type: "passageEnd", p: pa, end };
+  }
+  if (c.show_sea_names) for (const lb of app.view.labelBoxes) if (p.mx >= lb.x && p.mx <= lb.x + lb.w && p.my >= lb.y && p.my <= lb.y + lb.h) return { type: "label", sea: lb.sea };
+  if (c.show_tile_numbers || look.circles) {
     const r = Math.min(5, (app.cfg.tiles.pawn_diameter_mm || 12) / 2);
-    for (const t of d.meta.tiles) if (t.pawn_mm && Math.hypot(t.pawn_mm[0] - p.mx, t.pawn_mm[1] - p.my) < r * 0.6) return { type: "pawn", t };
+    for (const t of d.meta.tiles) if (t.pawn_mm && near(t.pawn_mm, r * 0.6)) return { type: "pawn", t };
   }
-  if (vo.passages) {
-    for (const pa of d.meta.passages) {
-      if (!pa.enabled) continue;
-      if (segDist(p.mx, p.my, pa.a_mm, pa.b_mm) < 1.2) return { type: "passage", p: pa };
-    }
+  for (const pa of routes) {
+    const pts = passagePoints(pa);
+    for (let i = 0; i < pts.length - 1; i++) if (segDist(p.mx, p.my, pts[i], pts[i + 1]) < 1.2) return { type: "passage", p: pa, segment: i };
   }
   if (p.id) return { type: "tile", id: p.id };
   return null;
@@ -837,8 +950,16 @@ function onDown(e) {
         select("passage", hit.p);
         d.begin("move link end", false);
         app.drag = { type: "passageEnd", p: hit.p, end: hit.end, moved: false };
+      } else if (hit.type === "waypoint") {
+        if (e.altKey) { d.edit("remove waypoint", () => hit.p.via_mm.splice(hit.i, 1)); refreshSidebar(); return; }
+        d.begin("move waypoint", false);
+        app.drag = { type: "waypoint", p: hit.p, i: hit.i, moved: false };
       } else if (hit.type === "passage") {
-        select("passage", hit.p);
+        // a selected passage bends where its line is dragged
+        if (app.sel.passage === hit.p) {
+          d.begin("add waypoint", false);
+          app.drag = { type: "bend", p: hit.p, i: hit.segment, start: [p.sx, p.sy], moved: false };
+        } else select("passage", hit.p);
       } else if (hit.type === "tile") {
         select("tiles", hit.id, e.shiftKey);
         startPan(p);
@@ -916,7 +1037,7 @@ function onDown(e) {
       app.linkStart = null;
       const ta = d.tileNear(a[0], a[1]), tb = d.tileNear(p.mx, p.my);
       d.edit("add link", (m) => m.passages.push({ name: `Link ${ta || "?"}–${tb || "?"}`, kind: app.opts.linkKind, enabled: true,
-        source: "manual", a_mm: a.map(round2), b_mm: [round2(p.mx), round2(p.my)] }));
+        source: "manual", a_mm: a.map(round2), b_mm: [round2(p.mx), round2(p.my)], via_mm: [] }));
       d.analysisVersion = -1; d.ensureAnalysis(app.cfg);
       select("passage", d.meta.passages.at(-1));
       toast(ta && tb && ta !== tb ? `Link between tiles ${ta} and ${tb}` : "Link added, but an end is not in a tile", !(ta && tb && ta !== tb));
@@ -950,10 +1071,19 @@ function onMove(e) {
       break;
     }
     case "passageEnd": g.p[g.end] = [round2(p.mx), round2(p.my)]; g.moved = true; app.view.requestDraw(); break;
+    case "bend":
+      if (Math.hypot(p.sx - g.start[0], p.sy - g.start[1]) < 3) break;
+      (g.p.via_mm ||= []).splice(g.i, 0, [round2(p.mx), round2(p.my)]);
+      g.type = "waypoint"; g.moved = true; app.view.requestDraw();
+      break;
+    case "waypoint": g.p.via_mm[g.i] = [round2(p.mx), round2(p.my)]; g.moved = true; app.view.requestDraw(); break;
     case "moveTile": g.cur = [p.mx, p.my]; app.view.requestDraw(); break;
     case "stroke": {
       const rect = d.strokeTo(p.c, p.r, app.opts.brushMm * d.ppm);
-      if (rect) app.view.rebuildOverlay(rect);
+      if (rect) {
+        app.view.rebuildOverlay(rect);
+        if (performance.now() - (g.traced || 0) > 120) { d.traceBorders(); g.traced = performance.now(); }
+      }
       app.view.requestDraw();
       break;
     }
@@ -968,8 +1098,8 @@ function onUp(e) {
   if (!g || !d) return;
   const p = pointerInfo(e);
   switch (g.type) {
-    case "field": case "label": case "pawn": case "passageEnd":
-      if (g.moved) { d.commit(); if (g.type === "passageEnd") { d.analysisVersion = -1; d.ensureAnalysis(app.cfg); } refreshSidebar(); }
+    case "field": case "label": case "pawn": case "passageEnd": case "waypoint": case "bend":
+      if (g.moved) { d.commit(); if (g.type !== "field" && g.type !== "label") d.ensureAnalysis(app.cfg); refreshSidebar(); }
       else d.cancel();
       app.view.requestDraw();
       break;
@@ -983,7 +1113,13 @@ function onUp(e) {
       });
       break;
     }
-    case "stroke": d.endStroke(); break;
+    case "stroke":
+      d.endStroke();
+      d.bordersKey = null;      // also when the stroke changed nothing in the end
+      d.analysisVersion = -1;
+      clearTimeout(analysisTimer);
+      analysisTimer = setTimeout(runAnalysis, 120);
+      break;
   }
 }
 
@@ -1011,8 +1147,20 @@ function updateStatus(p) {
 function updateZoom() { $("#st-zoom").textContent = `${fmt(app.view.scale / (96 / 25.4) * 100, 0)} %`; }
 
 // ================================================================ commands
-function doUndo() { const l = app.design?.undo(); if (l) toast("Undo: " + l); }
-function doRedo() { const l = app.design?.redo(); if (l) toast("Redo: " + l); }
+function doUndo() { history("undo", "Undo: "); }
+function doRedo() { history("redo", "Redo: "); }
+function history(step, word) {
+  const d = app.design;
+  if (!d || app.drag) return;
+  // undo replaces the objects: find the selected passage again by its place
+  const i = app.sel.passage ? d.meta.passages.indexOf(app.sel.passage) : -1, name = app.sel.passage?.name;
+  const label = d[step]();
+  if (!label) return;
+  if (i >= 0 && d.meta.passages[i]?.name === name) app.sel.passage = d.meta.passages[i];
+  d.ensureAnalysis(app.cfg);
+  app.view.requestDraw();
+  toast(word + label);
+}
 function mergeSelected() {
   const ids = [...app.sel.tiles];
   if (ids.length < 2) { toast("Select two or more tiles first (Shift+click)"); return; }
@@ -1029,7 +1177,6 @@ async function deleteSelection() {
     select(null);
   } else if (app.sel.passage) {
     const p = app.sel.passage;
-    if (p.source === "config") { toast("Config passages are switched off in the Passages menu"); return; }
     d.edit("delete link", (m) => { m.passages = m.passages.filter((x) => x !== p); });
     select(null);
   } else if (app.sel.tiles.size) {
@@ -1254,16 +1401,35 @@ function duplicateField() {
 function passageInspector(p) {
   const d = app.design;
   const info = d.analysis?.passageInfo?.find((x) => x.p === p);
-  const manual = p.source !== "config";
-  const set = (k, v) => { d.edit("edit link", () => { p[k] = v; }); d.analysisVersion = -1; d.ensureAnalysis(app.cfg); app.view.requestDraw(); refreshSidebar(); };
-  return h("div", { class: "sec" }, h("h3", {}, manual ? "Link (drawn here)" : "Passage (from config)"),
+  const main = app.mainCfg.passages.find((m) => m.name === p.name);
+  const via = p.via_mm || [];
+  const apply = (label, fn) => {
+    if (!d.meta.passages.includes(p)) return;
+    d.edit(label, fn);
+    d.ensureAnalysis(app.cfg);
+    app.view.requestDraw();
+    refreshSidebar();
+  };
+  const set = (k, v) => apply("edit passage", () => { p[k] = v; });
+  return [h("div", { class: "sec" }, h("h3", {}, p.source === "config" ? "Passage" : "Link (drawn here)"),
     h("div", { class: "kv" },
-      h("label", {}, "Name"), manual ? h("input", { type: "text", value: p.name, onchange: (e) => set("name", e.target.value) }) : h("span", {}, p.name),
-      h("label", {}, "Kind"), manual ? h("select", { onchange: (e) => set("kind", e.target.value) }, ["canal", "strait", "route"].map((k) => h("option", { value: k, selected: p.kind === k }, k))) : h("span", {}, p.kind),
+      h("label", {}, "On"), h("label", {}, h("input", { type: "checkbox", checked: p.enabled !== false, onchange: (e) => { e.target.blur(); set("enabled", e.target.checked); } }), " connects and is drawn"),
+      h("label", {}, "Name"), h("input", { type: "text", value: p.name, onchange: (e) => set("name", e.target.value) }),
+      h("label", {}, "Kind"), h("select", { onchange: (e) => set("kind", e.target.value) }, ["canal", "strait", "route"].map((k) => h("option", { value: k, selected: p.kind === k }, k))),
       h("span", {}, "Tiles"), h("span", {}, info?.ta ? tileChip(info.ta) : "–", " ↔ ", info?.tb ? tileChip(info.tb) : "–"),
       h("span", {}, "Status"), h("span", { class: info?.status === "ok" ? "good" : "warn" }, info?.status || "–", info?.natural ? " (tiles already touch)" : "")),
-    h("p", { class: "muted" }, manual ? "Drag the end points with the Select tool." : "Edit or switch it off in the Passages menu (menubar)."),
-    manual ? h("button", { class: "danger", onclick: deleteSelection }, "Delete link") : null);
+    h("p", { class: "muted" }, "Drag an end or a point to move it. Drag the line to add a point. Alt+click a point removes it.")),
+  h("div", { class: "sec" }, h("h3", {}, `Waypoints (${via.length})`),
+    h("div", { class: "list" }, via.map((q, i) => h("div", { class: "li", style: "cursor:default" },
+      h("span", { class: "grow" }, `${i + 1}: ` + d.proj.inverse(...q).map((v) => fmt(v, 2)).join(", ")),
+      h("button", { title: "remove this point", onclick: () => apply("remove waypoint", () => p.via_mm.splice(i, 1)) }, "✕"))))),
+  h("div", { class: "row" },
+    via.length ? h("button", { onclick: () => apply("straighten passage", () => { p.via_mm = []; }) }, "Straighten") : null,
+    main ? h("button", { onclick: () => apply("main project's route", () => {
+      const { a_mm, b_mm, via_mm } = d.passageFromConfig(main);
+      Object.assign(p, { a_mm, b_mm, via_mm });
+    }) }, "Use main project's route") : null,
+    h("button", { class: "danger", onclick: deleteSelection }, "Delete"))];
 }
 
 function renderSeas() {
@@ -1488,13 +1654,14 @@ function helpDialog() {
   const rows = [["V M A G B E F L H", "tools: select, move, add/split, merge, brush, eraser, fields, link, pan"],
     ["Space + drag", "pan (also middle or right mouse)"], ["Wheel", "zoom at the pointer"], ["0  +  −", "fit, zoom in, zoom out"],
     ["Shift + click", "add a tile to the selection"], ["Ctrl+G / Enter", "merge the selected tiles"], ["Del", "delete the selection"],
-    ["Ctrl+Z / Ctrl+Y", "undo / redo"], ["Ctrl+S", "save"], ["Ctrl+E", "export"], ["[  ]", "brush size"], ["Alt + click", "brush: pick the tile to paint"],
+    ["Ctrl+Z / Ctrl+Y", "undo / redo"], ["Ctrl+S", "save"], ["Ctrl+E", "export"], ["[  ]", "brush size"], ["Alt + click", "brush: pick the tile to paint · on a passage point: remove it"],
+    ["Drag a passage", "click it first, then drag the line to bend it"],
     ["Arrows", "nudge the selected field (Shift: 5 mm)"], ["Ctrl+D", "duplicate the selected field"], ["Esc", "clear selection, cancel a link"]];
   dialog("Keyboard and mouse", h("div", { class: "keys" }, rows.flatMap(([k, v]) => [h("span", {}, h("kbd", {}, k)), h("span", {}, v)])));
 }
 function aboutDialog() {
   dialog("About", [h("p", {}, "Sea Board Designer: iterate on the board of the co-op sea game."),
-    h("p", {}, "Settings come from a copy of config.yaml (", h("code", {}, "state/config.yaml"), "). The main project's scripts in ",
+    h("p", {}, "Settings follow the main config.yaml, except what you change here (", h("code", {}, "state/config.yaml"), "). The main project's scripts in ",
       h("code", {}, app.paths?.src || "../src"), " are run unchanged with that copy; nothing in the main project is modified."),
     h("p", { class: "muted" }, "Tiles are edited as a raster (4 px per mm like the generator). Move and split regrow tiles with the same geodesic Voronoi and area balancing as make_tiles.py.")]);
 }

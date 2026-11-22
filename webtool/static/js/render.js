@@ -1,4 +1,8 @@
 // Canvas view: pan/zoom, a raster overlay for tiles, and vector layers drawn on top.
+// The board layers (order, sizes, colours) are those of ../src/compose_board.py plus the export in
+// server.py. A change there belongs here as well.
+import { passagePoints } from "./design.js";
+
 export function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || "");
   return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [200, 200, 200];
@@ -96,44 +100,41 @@ export class View {
     const app = this.app, d = app.design, vo = app.vo;
     const M = Math.max(d.maxId(), 1) + 2;
     const fill = new Uint8ClampedArray(M * 4);
-    const seaIdx = new Int16Array(M).fill(-1);
     const flag = new Uint8Array(M);              // 1 selected, 2 problem
     const a = d.analysis;
     const pawnPx = (app.cfg?.tiles?.pawn_diameter_mm ?? 12) * d.ppm;
-    const alpha = Math.round(255 * vo.fillAlpha);
+    const look = d.meta.look;
+    const alpha = Math.round(255 * look.fill_opacity);
     for (const t of d.meta.tiles) {
       if (t.id >= M) continue;
       const si = d.seaIndex(t.sea);
-      seaIdx[t.id] = si;
       let rgb;
-      if (vo.fill === "tile") rgb = hsl((t.id * 0.618034) % 1, 0.55, 0.55);
+      if (look.fill === "tile") rgb = hsl((t.id * 0.618034) % 1, 0.55, 0.55);
       else {
         rgb = hexToRgb(d.meta.seas[si]?.color || "#888888");
         const shade = 0.86 + 0.14 * ((t.id * 7) % 5) / 4;
         rgb = rgb.map((v) => v * shade);
       }
-      fill.set([rgb[0], rgb[1], rgb[2], vo.fill === "none" ? 0 : alpha], t.id * 4);
+      fill.set([rgb[0], rgb[1], rgb[2], look.fill === "none" ? 0 : alpha], t.id * 4);
       if (app.sel.tiles.has(t.id)) flag[t.id] |= 1;
       if (vo.problems && a) {
         const bad = (a.inscribedPx[t.id] || 0) * 2 < pawnPx || a.pieces[t.id] > 1 || (a.unreachable || []).includes(t.id);
         if (bad && a.area[t.id]) flag[t.id] |= 2;
       }
     }
-    return { fill, seaIdx, flag, M };
+    return { fill, flag, M };
   }
 
   rebuildOverlay(rect) {
     const d = this.app.design;
     if (!d || !this.img) return;
     const { W, H, lab, water } = d;
-    const vo = this.app.vo;
-    const { fill, seaIdx, flag, M } = this.colourTables();
-    const ink = hexToRgb(this.app.cfg?.compose?.border_color || "#f4ecd8");
+    const { fill, flag, M } = this.colourTables();
     const data = this.img.data;
     const [x0, y0, x1, y1] = rect
       ? [Math.max(0, rect[0] - 3), Math.max(0, rect[1] - 3), Math.min(W - 1, rect[2] + 3), Math.min(H - 1, rect[3] + 3)]
       : [0, 0, W - 1, H - 1];
-    const showB = vo.borders, unassigned = vo.unassigned;
+    const unassigned = this.app.vo.unassigned;
     const at = (c, r) => (c < 0 || r < 0 || c >= W || r >= H ? -1 : lab[r * W + c]);
     for (let r = y0; r <= y1; r++) {
       for (let c = x0; c <= x1; c++) {
@@ -146,28 +147,11 @@ export class View {
         }
         const tt = t < M ? t : 0;
         const sel = flag[tt] & 1;
-        let border = 0, selEdge = false;
-        if (showB || sel) {
-          const n1 = [at(c - 1, r), at(c + 1, r), at(c, r - 1), at(c, r + 1)];
-          for (const u of n1) {
-            if (u === t) continue;
-            if (sel && u !== t) selEdge = true;
-            if (u > 0) border = Math.max(border, seaIdx[u < M ? u : 0] !== seaIdx[tt] ? 2 : 1);
-          }
-          if (border < 2 && showB) {
-            for (const u of [at(c - 2, r), at(c + 2, r), at(c, r - 2), at(c, r + 2)]) {
-              if (u > 0 && u !== t && seaIdx[u < M ? u : 0] !== seaIdx[tt]) { border = 2; break; }
-            }
-          }
-          if (sel && !selEdge) {
-            for (const u of [at(c - 2, r), at(c + 2, r), at(c, r - 2), at(c, r + 2), at(c - 3, r), at(c + 3, r), at(c, r - 3), at(c, r + 3)]) {
-              if (u !== t) { selEdge = true; break; }
-            }
-          }
+        if (sel && (at(c - 1, r) !== t || at(c + 1, r) !== t || at(c, r - 1) !== t || at(c, r + 1) !== t ||
+                    at(c - 3, r) !== t || at(c + 3, r) !== t || at(c, r - 3) !== t || at(c, r + 3) !== t)) {
+          data[o] = 255; data[o + 1] = 210; data[o + 2] = 60; data[o + 3] = 255;
+          continue;
         }
-        if (selEdge) { data[o] = 255; data[o + 1] = 210; data[o + 2] = 60; data[o + 3] = 255; continue; }
-        if (showB && border === 2) { data[o] = ink[0]; data[o + 1] = ink[1]; data[o + 2] = ink[2]; data[o + 3] = 245; continue; }
-        if (showB && border === 1) { data[o] = ink[0]; data[o + 1] = ink[1]; data[o + 2] = ink[2]; data[o + 3] = 170; continue; }
         let R = fill[tt * 4], G = fill[tt * 4 + 1], B = fill[tt * 4 + 2], A = fill[tt * 4 + 3];
         if (flag[tt] & 2) {
           const stripe = ((c + r) >> 3) & 1;
@@ -183,7 +167,7 @@ export class View {
 
   // ---------------------------------------------------------------- drawing
   draw() {
-    const ctx = this.ctx, app = this.app, d = app.design, vo = app.vo, cfg = app.cfg;
+    const ctx = this.ctx, app = this.app, d = app.design, cfg = app.cfg;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--stage").trim() || "#0b141c";
@@ -191,7 +175,8 @@ export class View {
     if (!d) return;
     const b = d.board, fr = d.frame;
     const iw = b.inner_width_mm, ih = b.inner_height_mm, MH = b.map_height_mm, PH = b.panel_height_mm;
-    const ink = cfg.compose.border_color, font = `"${cfg.compose.font}", "DejaVu Serif", Georgia, serif`;
+    const look = d.meta.look, c = cfg.compose;
+    const ink = c.border_color, font = `"${cfg.compose.font}", "DejaVu Serif", Georgia, serif`;
     ctx.translate(this.tx, this.ty);
     ctx.scale(this.scale, this.scale);
     // board, frame, panel
@@ -205,74 +190,96 @@ export class View {
     ctx.translate(fr.left, fr.top);
     ctx.fillStyle = cfg.day_track.panel_color;
     ctx.fillRect(0, 0, iw, ih);
-    if (vo.art && this.art) ctx.drawImage(this.art, 0, 0, iw, MH);
+    if (c.map_art !== "none" && this.art) ctx.drawImage(this.art, 0, 0, iw, MH);
     else { ctx.fillStyle = "#3d6f93"; ctx.fillRect(0, 0, iw, MH); }
     ctx.imageSmoothingEnabled = this.scale * (iw / d.W) < 1.5;
     ctx.drawImage(this.overlay, 0, 0, iw, MH);
     ctx.imageSmoothingEnabled = true;
 
+    const pawnR = (cfg.tiles.pawn_diameter_mm ?? 12) / 2;
+    if (look.circles) {
+      ctx.setLineDash([1, 0.8]); ctx.lineWidth = 0.35; ctx.lineCap = "butt";
+      for (const t of d.meta.tiles) {
+        if (!t.pawn_mm) continue;
+        ctx.beginPath(); ctx.arc(t.pawn_mm[0], t.pawn_mm[1], pawnR, 0, Math.PI * 2);
+        ctx.strokeStyle = app.sel.tiles.has(t.id) ? "#ffd23c" : ink;
+        ctx.globalAlpha = 0.6; ctx.stroke();
+      }
+      ctx.globalAlpha = 1; ctx.setLineDash([]);
+    }
+    // borders: dark under-stroke, light line on top
+    if (look.borders) {
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      for (const under of [true, false]) {
+        ctx.strokeStyle = under ? "#0b1d2b" : ink;
+        ctx.globalAlpha = under ? 0.35 : 0.9;
+        for (const line of d.borders) {
+          const w = line.region ? c.region_border_mm : c.tile_border_mm;
+          if (!(w > 0)) continue;
+          ctx.lineWidth = under ? w * 2.2 : w;
+          ctx.stroke(line.path);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
     const a = d.analysis;
-    // passages
-    if (vo.passages && a?.passageInfo) {
+    // passages, along their waypoints
+    if (look.passages && a?.passageInfo) {
       for (const pi of a.passageInfo) {
-        const p = pi.p;
-        if (!p.enabled) continue;
-        const ok = pi.status === "ok";
-        if (ok && !pi.drawn && app.sel.passage !== p) continue;
-        const [ax, ay] = p.a_mm, [bx, by] = p.b_mm;
-        ctx.lineCap = "round";
+        const p = pi.p, sel = app.sel.passage === p, ok = pi.status === "ok";
+        if (!sel && !(p.enabled && ok && pi.drawn)) continue;
+        const pts = passagePoints(p);
+        const path = new Path2D();
+        pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
         ctx.strokeStyle = "rgba(11,29,43,0.5)"; ctx.lineWidth = 1.8; ctx.setLineDash([]);
-        line(ctx, ax, ay, bx, by);
-        ctx.strokeStyle = !ok ? "#ff6b6b" : app.sel.passage === p ? "#ffd23c" : ink;
+        ctx.stroke(path);
+        ctx.strokeStyle = !sel ? ink : ok ? "#ffd23c" : "#ff6b6b";
         ctx.lineWidth = 0.9;
-        ctx.setLineDash(p.kind === "canal" ? [2.2, 1.4] : p.kind === "strait" ? [0.6, 1.2] : [3, 1, 0.6, 1]);
-        line(ctx, ax, ay, bx, by);
+        ctx.setLineDash(p.kind === "canal" ? [2.2, 1.4] : [0.6, 1.2]);
+        ctx.stroke(path);
         ctx.setLineDash([]);
-        for (const [x, y] of [p.a_mm, p.b_mm]) {
-          ctx.beginPath(); ctx.arc(x, y, 0.9, 0, 7);
+        for (const [x, y] of [pts[0], pts[pts.length - 1]]) {
+          ctx.beginPath(); ctx.arc(x, y, 0.9, 0, Math.PI * 2);
           ctx.fillStyle = ink; ctx.fill(); ctx.lineWidth = 0.3; ctx.strokeStyle = "#0b1d2b"; ctx.stroke();
+        }
+        if (sel) {      // handles of the waypoints
+          const s = Math.min(1.1, 4.5 / this.scale);
+          ctx.fillStyle = "#ffd23c";
+          for (const [x, y] of pts.slice(1, -1)) ctx.fillRect(x - s, y - s, 2 * s, 2 * s);
         }
       }
     }
     // wrap arrows
-    if (vo.wraps && a?.wraps) {
+    if (look.wraps && a?.wraps) {
+      ctx.lineCap = "butt"; ctx.lineJoin = "miter";
       for (const w of a.wraps) {
-        const y = (w.row + 0.5) / d.ppm;
+        const y = w.y_mm;
         for (const [x, s, target] of [[0, -1, w.right], [iw, 1, w.left]]) {
           const base = x - s * 3.2;
           ctx.beginPath(); ctx.moveTo(base, y - 2.2); ctx.lineTo(x, y); ctx.lineTo(base, y + 2.2); ctx.closePath();
           ctx.fillStyle = ink; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
           ctx.lineWidth = 0.3; ctx.strokeStyle = "#0b1d2b"; ctx.stroke();
-          ctx.font = `bold 3.2px ${font}`;
+          ctx.font = `bold 3.6px ${font}`;
           ctx.textAlign = s < 0 ? "left" : "right";
-          haloText(ctx, String(target), base - s * 0.8, y + 1.1, ink, "#0b1d2b", 0.45);
+          haloText(ctx, String(target), base - s * 0.8, y + 1.25, ink, "#0b1d2b", 0.8);
+          ctx.lineJoin = "miter";
         }
       }
     }
-    // pawn circles and numbers
-    const pawnR = (cfg.tiles.pawn_diameter_mm ?? 12) / 2;
-    if (vo.circles || vo.numbers) {
+    // tile numbers
+    if (c.show_tile_numbers) {
       for (const t of d.meta.tiles) {
         if (!t.pawn_mm) continue;
         const [x, y] = t.pawn_mm;
-        const sel = app.sel.tiles.has(t.id);
-        if (vo.circles) {
-          ctx.beginPath(); ctx.arc(x, y, pawnR, 0, 7);
-          ctx.setLineDash([1, 0.8]);
-          ctx.strokeStyle = sel ? "#ffd23c" : ink;
-          ctx.globalAlpha = sel ? 1 : 0.6; ctx.lineWidth = sel ? 0.5 : 0.35; ctx.stroke();
-          ctx.globalAlpha = 1; ctx.setLineDash([]);
-        }
-        if (vo.numbers) {
-          ctx.font = `bold 4px ${font}`; ctx.textAlign = "center";
-          haloText(ctx, String(t.id), x, y + 1.4, sel ? "#ffd23c" : ink, "#0b1d2b", 0.5);
-          if (t.pinned) { ctx.font = `2.4px ${font}`; haloText(ctx, "📌", x + 3.4, y - 2.4, ink, "#0b1d2b", 0.2); }
-        }
+        ctx.font = `bold 4px ${font}`; ctx.textAlign = "center";
+        haloText(ctx, String(t.id), x, y + 1.4, app.sel.tiles.has(t.id) ? "#ffd23c" : ink, "#0b1d2b", 0.9);
+        if (t.pinned) { ctx.font = `2.4px ${font}`; haloText(ctx, "📌", x + 3.4, y - 2.4, ink, "#0b1d2b", 0.4); }
       }
     }
     // sea labels
     this.labelBoxes = [];
-    if (vo.labels) {
+    if (c.show_sea_names) {
       const lang = cfg.compose.language;
       const counts = new Map();
       for (const t of d.meta.tiles) counts.set(t.sea, (counts.get(t.sea) || 0) + 1);
@@ -283,11 +290,11 @@ export class View {
         const spacing = (ocean ? 0.2 : 0.05) * size;
         let text = lang === "nl" ? s.name_nl || s.name : s.name;
         if (ocean) text = text.toUpperCase();
-        ctx.font = `italic ${size}px ${font}`;
+        ctx.font = `${this.app.italic === false ? "" : "italic "}${size}px ${font}`;
         const [x, y] = s.label_mm;
         const wbox = spacedWidth(ctx, text, spacing);
         const sel = app.sel.sea === s.name;
-        spacedText(ctx, text, x, y + size * 0.36, spacing, sel ? "#ffd23c" : ink, "rgba(11,29,43,0.6)", size * 0.12);
+        spacedText(ctx, text, x, y + size * 0.36, spacing, sel ? "#ffd23c" : ink, "rgba(11,29,43,0.55)", size * 0.18);
         this.labelBoxes.push({ sea: s.name, x: x - wbox / 2, y: y - size * 0.55, w: wbox, h: size * 1.1 });
         if (sel) {
           ctx.strokeStyle = "#ffd23c"; ctx.lineWidth = 0.3; ctx.setLineDash([1, 1]);
@@ -296,6 +303,7 @@ export class View {
       }
     }
     if (PH > 5) {       // top edge of the bottom panel
+      ctx.lineCap = "butt";
       ctx.strokeStyle = ink; ctx.lineWidth = 0.6;
       line(ctx, 0, MH, iw, MH);
     }
@@ -317,13 +325,10 @@ export class View {
     ctx.restore();
 
     // fields (board coordinates)
-    if (vo.fields) {
+    if (look.fields) {
       const text = boardText(app);
-      for (const f of d.meta.fields) if (!f.hidden) drawField(ctx, f, app.sel.field === f.id, ink, font, text);
+      for (const f of d.meta.fields) if (!f.hidden) drawField(ctx, f, app.sel.field === f.id, ink, font, text, app.italic !== false);
     }
-    // map outline
-    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1 / this.scale;
-    ctx.strokeRect(fr.left, fr.top, iw, ih);
     // brush cursor
     if ((app.tool === "paint" || app.tool === "erase") && app.hoverBoard) {
       ctx.beginPath(); ctx.arc(app.hoverBoard[0], app.hoverBoard[1], app.opts.brushMm, 0, 7);
@@ -346,7 +351,7 @@ function roundRect(ctx, x, y, w, h, r) {
 
 function haloText(ctx, text, x, y, fill, halo, width) {
   ctx.lineJoin = "round";
-  ctx.strokeStyle = halo; ctx.lineWidth = width * 2;
+  ctx.strokeStyle = halo; ctx.lineWidth = width;
   ctx.strokeText(text, x, y);
   ctx.fillStyle = fill;
   ctx.fillText(text, x, y);
@@ -365,7 +370,7 @@ function spacedText(ctx, text, cx, y, spacing, fill, halo, haloW) {
   ctx.lineJoin = "round";
   const chars = [...text];
   const xs = chars.map((ch) => { const p = x; x += ctx.measureText(ch).width + spacing; return p; });
-  ctx.strokeStyle = halo; ctx.lineWidth = haloW * 2;
+  ctx.strokeStyle = halo; ctx.lineWidth = haloW;
   chars.forEach((ch, i) => ctx.strokeText(ch, xs[i], y));
   ctx.fillStyle = fill;
   chars.forEach((ch, i) => ctx.fillText(ch, xs[i], y));
@@ -418,7 +423,7 @@ function drawLegend(ctx, f, ink, font, text) {
 }
 
 // same layout as field_svg / legend_svg in server.py
-export function drawField(ctx, f, selected, ink, font, text) {
+export function drawField(ctx, f, selected, ink, font, text, italic) {
   ctx.save();
   ctx.translate(f.x, f.y);
   ctx.rotate(((f.rotation || 0) * Math.PI) / 180);
@@ -444,7 +449,7 @@ export function drawField(ctx, f, selected, ink, font, text) {
       lines.forEach((ln, i) => ctx.fillText(ln, 0, base + i * fs * 1.2));
     }
     if (sub) {
-      ctx.font = `italic ${(size * 0.13).toFixed(1)}px ${font}`;
+      ctx.font = `${italic ? "italic " : ""}${(size * 0.13).toFixed(1)}px ${font}`;
       ctx.globalAlpha = 0.85;
       ctx.fillText(sub, 0, f.h * (label ? 0.3 : 0.05));
       ctx.globalAlpha = 1;
