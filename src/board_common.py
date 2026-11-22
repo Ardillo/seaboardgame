@@ -30,6 +30,8 @@ def load_config(args):
         for k in parts[:-1]:
             node = node[k]
         node[parts[-1]] = yaml.safe_load(value)
+    for key in ("output_dir", "data_dir"):
+        cfg[key] = str((SRC_DIR / cfg[key]).resolve())      # relative = from src/; absolute stays as it is
     out = Path(cfg["output_dir"])
     out.mkdir(parents=True, exist_ok=True)
     return cfg

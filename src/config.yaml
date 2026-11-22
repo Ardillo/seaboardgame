@@ -1,8 +1,9 @@
 # Sea board configuration. All lengths in millimetres unless stated.
 # Every script reads this file; pass --config to use another one.
 
-output_dir: /mnt/out          # everything generated lands here
-data_dir: /mnt/data/natural_earth
+# Relative paths start at src/ (not at the current directory); absolute paths work too.
+output_dir: ../out            # everything generated lands here
+data_dir: ../data/natural_earth
 
 board:
   width_mm: 600

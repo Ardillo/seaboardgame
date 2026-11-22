@@ -1,80 +1,125 @@
 # Generating the sea board
 
-All code is in `/mnt/src`, all settings in `/mnt/src/config.yaml`, and all output goes to `/mnt/out`.
-Run the commands from `/mnt/src` with the project Python:
+Code is in `src/`, settings in `src/config.yaml`, output in `out/`. These paths are from the repo root.
+
+## Setup (once)
+
+Needs [uv](https://docs.astral.sh/uv/), Python 3.12+, the Cairo library, fontconfig and the DejaVu fonts
+(Debian/Ubuntu: `apt install libcairo2 fontconfig fonts-dejavu-core`). Start in the repo root:
 
 ```bash
-cd /mnt/src
-PY=/mnt/.venv/bin/python
+uv venv --python 3.12 --system-site-packages .venv
+uv pip install --python .venv/bin/python -r webtool/requirements.txt
+cd src
+PY=../.venv/bin/python
+$PY fetch_data.py       # Natural Earth: ~90 MB download, ~170 MB on disk
 ```
 
-## One-time setup
+All commands below run from `src/`. In a new shell, repeat `cd src` and the `PY=` line.
+`fetch_data.py` skips folders that exist; after a broken download, delete that folder and run it again.
+
+## Build the board
 
 ```bash
-cd /mnt && uv venv --system-site-packages .venv
-uv pip install --python .venv/bin/python shapely pyshp scipy numba scikit-image cairosvg
-cd src && $PY fetch_data.py          # Natural Earth data -> /mnt/data/natural_earth (~90 MB)
+$PY make_tiles.py       # 1. tiles, sea names, passages (about 5 min, longer for a bigger board)
+$PY make_art.py guide   # 2. atlas map image (seconds)
+$PY compose_board.py    # 3. board (about 30 s)
 ```
 
-SDXL (`stabilityai/stable-diffusion-xl-base-1.0`) must be in the Hugging Face cache; it already is on this machine.
+| Output in `out/` | What |
+|---|---|
+| `board/board.pdf`, `board/board.svg` | the board |
+| `board/board.png` | 300 dpi; skipped, so left as it was, with `compose_board.py --no-png` |
+| `board/board_preview.jpg` | small preview |
+| `tiles/report.txt` | seas left out or merged, refine rounds, sizes, passages, warnings |
+| `tiles/preview.png` | colour check of the tile layout |
+| `tiles/tiles.json` | tiles (numbered from 1), neighbours, seas, passages, edge crossings |
+| `tiles/borders.json`, `tiles/labels.npy` | border lines; tile number per pixel (0 = no tile) |
+| `art/guide.png` | the atlas map |
 
-## 1. Tiles (about 3-4 minutes)
+## What to rerun after a change
+
+| Changed in `config.yaml` | Run steps |
+|---|---|
+| `board.*`, `map.*` | 1, 2, 3 |
+| `tiles.*`, `seas.*`, `passages` | 1, 3 |
+| `compose.language`, `compose.font`, `compose.ocean_label_mm`, `compose.sea_label_mm` | 1, 3 (names are placed in step 1) |
+| other `compose.*`, `day_track.*` | 3 |
+| `art.dpi` | 2, 3 |
+
+## Try a variant
+
+`--set key=value` overrides a setting for one run. Give all three steps the same values.
+A separate `output_dir` leaves the main board untouched. Relative paths in it start at `src/`.
+
+More tiles:
 
 ```bash
-$PY make_tiles.py
+O=../out/count100
+$PY make_tiles.py --set output_dir=$O --set tiles.count=100
+$PY make_art.py guide --set output_dir=$O
+$PY compose_board.py --set output_dir=$O
 ```
 
-Look at `out/tiles/preview.png` and `out/tiles/report.txt`: seas left out (no room for a pawn), refine rounds, tile sizes and passages.
-`tiles.count` is the starting number; the refine rounds can add tiles (too wide) or remove them (too narrow).
-
-## 2. Map art
-
-The board uses the atlas map (`compose.map_art: guide`); only the first command is needed. The SDXL commands are optional.
+Bigger board:
 
 ```bash
-$PY make_art.py guide                         # real-colour guide map, seconds
-$PY make_art.py samples                       # 3 crops x strengths 0.3/0.4/0.5, about 5 min
-$PY make_art.py samples --strengths 0.35,0.45 # try other strengths
-$PY make_art.py full                          # whole map, about 15-20 min -> out/art/art.png
+O=../out/80x53
+$PY make_tiles.py --set output_dir=$O --set board.width_mm=800 --set board.height_mm=530
+$PY make_art.py guide --set output_dir=$O --set board.width_mm=800 --set board.height_mm=530
+$PY compose_board.py --set output_dir=$O --set board.width_mm=800 --set board.height_mm=530
 ```
 
-SDXL only: pick a strength from `out/art/samples/*_sheet.jpg` (left: guide, then increasing strength) and set `art.strength`.
-
-## 3. Board
+Dutch board:
 
 ```bash
-$PY compose_board.py                 # map image from compose.map_art (atlas map)
-$PY compose_board.py --no-png        # fast check without the big 300 dpi PNG
-$PY compose_board.py --art art       # use the SDXL painting instead (after make_art.py full)
+O=../out/nl
+$PY make_tiles.py --set output_dir=$O --set compose.language=nl
+$PY make_art.py guide --set output_dir=$O
+$PY compose_board.py --set output_dir=$O --set compose.language=nl
 ```
 
-Output: `out/board/board.pdf`, `board.svg`, `board.png` (300 dpi) and `board_preview.jpg`.
+Known issue: the Dutch names in Natural Earth do not separate north from south,
+so the board shows "Grote Oceaan" and "Atlantische Oceaan" twice.
 
-## Changing settings
+`--set` cannot edit one entry of `passages`; edit the file for that. It does not report a misspelled last key.
+`--config FILE` uses another config file.
 
-Edit `config.yaml`, or override a setting for one run with `--set` (works with every script):
-
-```bash
-$PY make_tiles.py --set tiles.count=100
-$PY make_tiles.py --set tiles.pawn_diameter_mm=14
-$PY make_tiles.py --set seas.biggest=15 --set tiles.random_seed=3
-$PY make_tiles.py --set board.width_mm=800 --set board.height_mm=530 && $PY compose_board.py --set board.width_mm=800 --set board.height_mm=530
-$PY compose_board.py --set compose.language=nl
-```
-
-After changing the board size, map range or projection, run all three steps again: tiles, then `make_art.py guide` (and `full`), then compose.
+## Main settings
 
 | Setting | What it does |
 |---|---|
-| `tiles.count` | starting number of sea tiles |
-| `tiles.pawn_diameter_mm` | seas where this pawn does not fit lose their own name |
-| `tiles.open_sea_contact` | such a sea joins its neighbours (open sea) or is left out (inlet / closed off) |
-| `tiles.max_width_factor` | max tile width compared with an average tile (stops fast lanes east-west) |
-| `tiles.min_wrap_edge_mm` | minimum shared edge for crossing the left/right edge |
+| `tiles.count` | starting number of tiles; refine rounds add or remove some (80 gives 107 now) |
+| `tiles.pawn_diameter_mm` | a sea without room for this pawn gets no tile of its own |
+| `tiles.open_sea_contact` | decides if such a sea joins its neighbours (open sea) or is left out (inlet, closed off) |
+| `tiles.max_width_factor` | widest tile allowed compared with an average tile; applied by the refine rounds |
+| `tiles.refine_rounds` | rounds of fixing tiles that are too wide or too narrow |
+| `tiles.min_wrap_edge_mm` | shared edge needed to cross the left/right board edge |
 | `tiles.random_seed` | another layout with the same rules |
-| `tiles.border_noise`, `tiles.sea_border_wiggle_mm` | how organic the tile and sea borders are |
-| `seas.biggest`, `seas.include_names` | which seas get their own tiles |
-| `passages` | canals and straits (`enabled: true/false`, optional `via` waypoints for the drawn route) |
+| `tiles.border_noise`, `tiles.sea_border_wiggle_mm` | how organic tile and sea borders are |
+| `seas.biggest` | number of biggest seas, gulfs and bays that are used next to the oceans |
+| `seas.include_names`, `seas.exclude_names` | seas always or never used; the pawn rule still applies |
+| `passages` | canals and straits: end points `a`, `b`, optional `via` route, `enabled`. Skipped if an end is not in a tile or both are in the same one |
 | `board.*`, `map.*` | board size, projection, centre longitude, latitude range |
-| `art.strength`, `art.prompt` | SDXL look |
-| `day_track.*`, `compose.language` | day track size, colours, language |
+| `compose.map_art` | `guide` = atlas map (default), `art` = SDXL painting |
+| `compose.language` | `en` or `nl` |
+| `day_track.*` | size and colours of the day track |
+
+## Optional: SDXL painting
+
+Not used for the current board. Needs an NVIDIA GPU (tested with 6 GB) and `torch`, `diffusers`, `transformers`,
+`accelerate` and `safetensors` (see the comments in `webtool/requirements.txt`).
+The model (~7 GB) downloads on first use. Run step 2 first whenever the board or map settings changed.
+
+```bash
+$PY make_art.py samples                  # 3 crops at strengths 0.3/0.4/0.5, about 3 min
+$PY make_art.py full                     # whole map at art.strength, about 4 min
+$PY compose_board.py --art art           # board with the painting
+```
+
+Samples are in `out/art/samples/`. Each sheet shows the guide, then increasing strength.
+Other strengths: `$PY make_art.py samples --strengths 0.35,0.45`.
+
+## Editing by hand
+
+`webtool/run.sh` starts the browser editor on http://127.0.0.1:8765, see `webtool/README.md`.

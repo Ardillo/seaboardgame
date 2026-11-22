@@ -20,6 +20,7 @@ import json
 import mimetypes
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -225,8 +226,8 @@ def data_path(cfg):
 def check_data(cfg):
     d = data_path(cfg)
     if not (d / "ne_50m_land").exists():
-        raise RuntimeError(f"Natural Earth data not found in {d}. Run ./setup.sh (or "
-                           f"python ../src/fetch_data.py --set data_dir={ROOT / 'data/natural_earth'}).")
+        cmd = shlex.join([str(PY), str(SRC / "fetch_data.py"), "--set", f"data_dir={d}"])
+        raise RuntimeError(f"Natural Earth data not found in {d}. Download it with: {cmd}")
     return d
 
 
