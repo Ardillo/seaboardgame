@@ -1,0 +1,2099 @@
+{
+ "version": 1,
+ "name": "main",
+ "created": "2026-11-22 00:55:54",
+ "source": "imported from ../out",
+ "run_dir": "work/runs/for-main-20261122-011459",
+ "board": {
+  "width_mm": 600,
+  "height_mm": 400,
+  "frame": {
+   "top": 0,
+   "right": 0,
+   "bottom": 0,
+   "left": 0
+  },
+  "inner_width_mm": 600,
+  "inner_height_mm": 400,
+  "map_height_mm": 366.12034709454815,
+  "panel_height_mm": 33.87965290545185,
+  "projection": "miller",
+  "center_lon": 0,
+  "lat_north": 84,
+  "lat_south": -80
+ },
+ "raster": {
+  "W": 2400,
+  "H": 1464,
+  "ppm": 4
+ },
+ "config": {
+  "output_dir": "../out",
+  "data_dir": "../data/natural_earth",
+  "board": {
+   "width_mm": 600,
+   "height_mm": 400
+  },
+  "map": {
+   "projection": "miller",
+   "center_lon": 0,
+   "lat_north": 84,
+   "lat_south": -80
+  },
+  "tiles": {
+   "count": 80,
+   "raster_px_per_mm": 4,
+   "lloyd_iterations": 40,
+   "border_noise": 0.35,
+   "noise_scale_mm": 40,
+   "sea_border_wiggle_mm": 10,
+   "min_water_component_mm2": 60,
+   "pawn_diameter_mm": 12,
+   "open_sea_contact": 1.5,
+   "max_width_factor": 1.6,
+   "min_wrap_edge_mm": 4,
+   "refine_rounds": 5,
+   "random_seed": 7
+  },
+  "seas": {
+   "biggest": 25,
+   "candidate_classes": [
+    "sea",
+    "gulf",
+    "bay"
+   ],
+   "include_names": [
+    "North Sea",
+    "Baltic Sea",
+    "Black Sea",
+    "Red Sea",
+    "Persian Gulf"
+   ],
+   "exclude_names": [
+    "Caspian Sea",
+    "Inner Seas",
+    "Inner Sea"
+   ]
+  },
+  "passages": [
+   {
+    "name": "Suez Canal",
+    "kind": "canal",
+    "enabled": false,
+    "a": [
+     32.35,
+     31.55
+    ],
+    "b": [
+     34,
+     27.3
+    ]
+   },
+   {
+    "name": "Suez Canal + Red Sea",
+    "kind": "canal",
+    "enabled": true,
+    "a": [
+     32.35,
+     31.55
+    ],
+    "b": [
+     45,
+     12.3
+    ],
+    "via": [
+     [
+      32.33,
+      30.6
+     ],
+     [
+      32.56,
+      29.92
+     ],
+     [
+      32.9,
+      29.3
+     ],
+     [
+      33.6,
+      27.9
+     ],
+     [
+      34.8,
+      26.2
+     ],
+     [
+      36.4,
+      23.6
+     ],
+     [
+      38.2,
+      20.6
+     ],
+     [
+      40,
+      17.4
+     ],
+     [
+      41.8,
+      14.8
+     ],
+     [
+      43.3,
+      12.7
+     ]
+    ]
+   },
+   {
+    "name": "Panama Canal",
+    "kind": "canal",
+    "enabled": true,
+    "a": [
+     -79.85,
+     9.55
+    ],
+    "b": [
+     -79.45,
+     8.75
+    ]
+   },
+   {
+    "name": "Kiel Canal",
+    "kind": "canal",
+    "enabled": true,
+    "a": [
+     8.4,
+     54.05
+    ],
+    "b": [
+     10.4,
+     54.55
+    ]
+   },
+   {
+    "name": "White Sea-Baltic Canal",
+    "kind": "canal",
+    "enabled": false,
+    "a": [
+     35,
+     64.8
+    ],
+    "b": [
+     29.5,
+     60
+    ]
+   },
+   {
+    "name": "Volga-Don Canal",
+    "kind": "canal",
+    "enabled": false,
+    "a": [
+     38.5,
+     46.5
+    ],
+    "b": [
+     48.5,
+     45.5
+    ]
+   },
+   {
+    "name": "Corinth Canal",
+    "kind": "canal",
+    "enabled": false,
+    "a": [
+     22.85,
+     38.05
+    ],
+    "b": [
+     23.05,
+     37.9
+    ]
+   },
+   {
+    "name": "Strait of Gibraltar",
+    "kind": "strait",
+    "enabled": true,
+    "a": [
+     -6.6,
+     35.9
+    ],
+    "b": [
+     -4.6,
+     36.2
+    ]
+   },
+   {
+    "name": "Bosporus and Dardanelles",
+    "kind": "strait",
+    "enabled": true,
+    "a": [
+     25.6,
+     39.9
+    ],
+    "b": [
+     29.6,
+     41.6
+    ]
+   },
+   {
+    "name": "Danish Straits",
+    "kind": "strait",
+    "enabled": true,
+    "a": [
+     11.6,
+     56.9
+    ],
+    "b": [
+     13.4,
+     55
+    ]
+   },
+   {
+    "name": "Bab-el-Mandeb",
+    "kind": "strait",
+    "enabled": true,
+    "a": [
+     42.6,
+     13.6
+    ],
+    "b": [
+     44.3,
+     12.2
+    ]
+   },
+   {
+    "name": "Strait of Hormuz",
+    "kind": "strait",
+    "enabled": true,
+    "a": [
+     55.6,
+     26.5
+    ],
+    "b": [
+     57.2,
+     25.6
+    ]
+   }
+  ],
+  "art": {
+   "dpi": 150,
+   "model": "stabilityai/stable-diffusion-xl-base-1.0",
+   "strength": 0.4,
+   "steps": 30,
+   "guidance": 6,
+   "tile_px": 1024,
+   "overlap_px": 256,
+   "seed": 1234,
+   "prompt": "hand-painted illustrated world map, gouache and watercolor painting, realistic natural colors, deep blue oceans with lighter turquoise shallows near the coasts, green forests, ochre deserts, white ice, soft brush strokes, detailed painted texture, top-down view, board game art",
+   "negative_prompt": "text, letters, words, labels, numbers, watermark, signature, grid, lines, borders, frame, compass rose, ships, people, photo, blurry, oversaturated, neon colors"
+  },
+  "compose": {
+   "print_dpi": 300,
+   "language": "en",
+   "font": "DejaVu Serif",
+   "tile_border_mm": 0.5,
+   "region_border_mm": 1,
+   "border_color": "#f4ecd8",
+   "show_tile_numbers": true,
+   "show_sea_names": true,
+   "ocean_label_mm": 6,
+   "sea_label_mm": 3.2
+  },
+  "day_track": {
+   "space_mm": 26,
+   "gap_mm": 4,
+   "weekend_gap_mm": 12,
+   "workday_color": "#2f5d7c",
+   "weekend_color": "#c8743a",
+   "text_color": "#f4ecd8",
+   "panel_color": "#16324a"
+  }
+ },
+ "tiles": [
+  {
+   "id": 1,
+   "sea": "Arctic Ocean",
+   "pawn_mm": [
+    24.62,
+    24.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 2,
+   "sea": "Arctic Ocean",
+   "pawn_mm": [
+    73.88,
+    22.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 3,
+   "sea": "Arctic Ocean",
+   "pawn_mm": [
+    115.12,
+    10.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 4,
+   "sea": "Arctic Ocean",
+   "pawn_mm": [
+    194.38,
+    40.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 5,
+   "sea": "Greenland Sea",
+   "pawn_mm": [
+    274.38,
+    45.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 6,
+   "sea": "Greenland Sea",
+   "pawn_mm": [
+    288.38,
+    19.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 7,
+   "sea": "Norwegian Sea",
+   "pawn_mm": [
+    296.62,
+    60.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 8,
+   "sea": "Greenland Sea",
+   "pawn_mm": [
+    310.62,
+    28.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 9,
+   "sea": "Norwegian Sea",
+   "pawn_mm": [
+    315.62,
+    48.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 10,
+   "sea": "Barents Sea",
+   "pawn_mm": [
+    355.38,
+    33.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 11,
+   "sea": "Barents Sea",
+   "pawn_mm": [
+    382.12,
+    28.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 12,
+   "sea": "Kara Sea",
+   "pawn_mm": [
+    416.38,
+    18.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 13,
+   "sea": "Kara Sea",
+   "pawn_mm": [
+    439.62,
+    21.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 14,
+   "sea": "Arctic Ocean",
+   "pawn_mm": [
+    500.88,
+    17.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 15,
+   "sea": "Arctic Ocean",
+   "pawn_mm": [
+    538.88,
+    15.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 16,
+   "sea": "Arctic Ocean",
+   "pawn_mm": [
+    580.88,
+    28.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 17,
+   "sea": "Bering Sea",
+   "pawn_mm": [
+    8.12,
+    86.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 18,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    27.62,
+    108.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 19,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    62.12,
+    99.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 20,
+   "sea": "Hudson Bay",
+   "pawn_mm": [
+    153.62,
+    76.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 21,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    195.88,
+    121.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 22,
+   "sea": "Labrador Sea",
+   "pawn_mm": [
+    207.88,
+    78.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 23,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    231.88,
+    110.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 24,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    246.12,
+    78.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 25,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    270.62,
+    121.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 26,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    270.88,
+    95.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 27,
+   "sea": "North Sea",
+   "pawn_mm": [
+    305.12,
+    86.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 28,
+   "sea": "Sea of Japan",
+   "pawn_mm": [
+    523.38,
+    121.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 29,
+   "sea": "Sea of Okhotsk",
+   "pawn_mm": [
+    549.38,
+    92.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 30,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    574.12,
+    116.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 31,
+   "sea": "Bering Sea",
+   "pawn_mm": [
+    590.38,
+    83.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 32,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    16.62,
+    142.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 33,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    17.88,
+    177.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 34,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    62.12,
+    170.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 35,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    75.12,
+    134.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 36,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    98.38,
+    162.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 37,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    130.62,
+    179.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 38,
+   "sea": "Gulf of Mexico",
+   "pawn_mm": [
+    145.88,
+    148.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 39,
+   "sea": "Caribbean Sea",
+   "pawn_mm": [
+    168.38,
+    167.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 40,
+   "sea": "Sargasso Sea",
+   "pawn_mm": [
+    203.12,
+    145.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 41,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    227.38,
+    175.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 42,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    240.12,
+    144.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 43,
+   "sea": "North Atlantic Ocean",
+   "pawn_mm": [
+    255.38,
+    178.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 44,
+   "sea": "Mediterranean Sea",
+   "pawn_mm": [
+    330.38,
+    130.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 47,
+   "sea": "Bay of Bengal",
+   "pawn_mm": [
+    443.88,
+    170.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 48,
+   "sea": "South China Sea",
+   "pawn_mm": [
+    491.12,
+    168.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 49,
+   "sea": "Philippine Sea",
+   "pawn_mm": [
+    518.38,
+    172.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 50,
+   "sea": "Philippine Sea",
+   "pawn_mm": [
+    521.62,
+    153.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 51,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    547.62,
+    149.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 52,
+   "sea": "North Pacific Ocean",
+   "pawn_mm": [
+    582.12,
+    154.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 53,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    28.38,
+    210.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 54,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    79.62,
+    201.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 55,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    115.38,
+    214.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 56,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    154.62,
+    220.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 57,
+   "sea": "South Atlantic Ocean",
+   "pawn_mm": [
+    255.62,
+    221.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 58,
+   "sea": "South Atlantic Ocean",
+   "pawn_mm": [
+    304.62,
+    208.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 59,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    380.38,
+    199.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 60,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    410.88,
+    236.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 61,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    439.88,
+    202.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 62,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    474.38,
+    223.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 63,
+   "sea": "Coral Sea",
+   "pawn_mm": [
+    557.12,
+    220.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 64,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    586.88,
+    204.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 65,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    19.88,
+    285.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 66,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    48.62,
+    249.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 67,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    67.62,
+    287.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 68,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    95.62,
+    250.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 69,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    116.38,
+    286.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 70,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    144.62,
+    256.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 71,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    157.12,
+    292.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 72,
+   "sea": "South Atlantic Ocean",
+   "pawn_mm": [
+    218.12,
+    291.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 73,
+   "sea": "South Atlantic Ocean",
+   "pawn_mm": [
+    235.62,
+    258.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 74,
+   "sea": "South Atlantic Ocean",
+   "pawn_mm": [
+    268.62,
+    286.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 75,
+   "sea": "South Atlantic Ocean",
+   "pawn_mm": [
+    290.38,
+    251.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 76,
+   "sea": "South Atlantic Ocean",
+   "pawn_mm": [
+    318.12,
+    282.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 77,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    353.88,
+    288.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 78,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    378.62,
+    250.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 79,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    389.62,
+    291.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 80,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    429.88,
+    278.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 81,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    447.38,
+    246.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 82,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    461.88,
+    288.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 83,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    485.38,
+    263.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 84,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    511.12,
+    286.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 85,
+   "sea": "Indian Ocean",
+   "pawn_mm": [
+    547.88,
+    286.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 86,
+   "sea": "Tasman Sea",
+   "pawn_mm": [
+    567.38,
+    258.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 87,
+   "sea": "South Pacific Ocean",
+   "pawn_mm": [
+    589.12,
+    296.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 88,
+   "sea": "Ross Sea",
+   "pawn_mm": [
+    14.88,
+    348.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 89,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    15.62,
+    322.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 90,
+   "sea": "Ross Sea",
+   "pawn_mm": [
+    40.38,
+    346.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 91,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    46.62,
+    322.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 92,
+   "sea": "Ross Sea",
+   "pawn_mm": [
+    66.62,
+    342.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 93,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    80.38,
+    323.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 94,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    108.62,
+    320.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 95,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    137.62,
+    324.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 96,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    165.38,
+    324.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 97,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    216.88,
+    325.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 98,
+   "sea": "Weddell Sea",
+   "pawn_mm": [
+    224.88,
+    348.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 99,
+   "sea": "Weddell Sea",
+   "pawn_mm": [
+    244.12,
+    346.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 100,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    255.12,
+    322.62
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 101,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    292.12,
+    319.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 102,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    332.38,
+    316.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 103,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    362.88,
+    317.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 104,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    425.12,
+    320.38
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 105,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    498.38,
+    314.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 106,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    553.62,
+    315.88
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 107,
+   "sea": "Southern Ocean",
+   "pawn_mm": [
+    587.12,
+    320.12
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  },
+  {
+   "id": 108,
+   "sea": "Arabian Sea",
+   "pawn_mm": [
+    405.88,
+    174.63
+   ],
+   "pawn_manual": false,
+   "pinned": false,
+   "note": ""
+  }
+ ],
+ "seas": [
+  {
+   "name": "Arabian Sea",
+   "name_nl": "Arabische Zee",
+   "class": "sea",
+   "color": "#c97272",
+   "label_mm": [
+    410.25,
+    155
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Arctic Ocean",
+   "name_nl": "Noordelijke IJszee",
+   "class": "ocean",
+   "color": "#728bc9",
+   "label_mm": [
+    60,
+    37.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Barents Sea",
+   "name_nl": "Barentszzee",
+   "class": "sea",
+   "color": "#a5c972",
+   "label_mm": [
+    376,
+    40.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Bay of Bengal",
+   "name_nl": "Golf van Bengalen",
+   "class": "bay",
+   "color": "#c972be",
+   "label_mm": [
+    449.5,
+    183
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Bering Sea",
+   "name_nl": "Beringzee",
+   "class": "sea",
+   "color": "#72c9bb",
+   "label_mm": [
+    571.5,
+    90.25
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Caribbean Sea",
+   "name_nl": "Caraïbische Zee",
+   "class": "sea",
+   "color": "#c9a172",
+   "label_mm": [
+    192.5,
+    169.25
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Coral Sea",
+   "name_nl": "Koraalzee",
+   "class": "sea",
+   "color": "#8872c9",
+   "label_mm": [
+    563.25,
+    232
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Greenland Sea",
+   "name_nl": "Groenlandzee",
+   "class": "sea",
+   "color": "#76c972",
+   "label_mm": [
+    286.75,
+    31.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Gulf of Mexico",
+   "name_nl": "Golf van Mexico",
+   "class": "gulf",
+   "color": "#c9728f",
+   "label_mm": [
+    165.5,
+    139
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Hudson Bay",
+   "name_nl": "Hudsonbaai",
+   "class": "bay",
+   "color": "#72a9c9",
+   "label_mm": [
+    166,
+    60.75
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Indian Ocean",
+   "name_nl": "Indische Oceaan",
+   "class": "ocean",
+   "color": "#c2c972",
+   "label_mm": [
+    442.5,
+    260
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Kara Sea",
+   "name_nl": "Karazee",
+   "class": "sea",
+   "color": "#b772c9",
+   "label_mm": [
+    438.75,
+    9
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Labrador Sea",
+   "name_nl": "Labradorzee",
+   "class": "sea",
+   "color": "#72c99d",
+   "label_mm": [
+    203,
+    65.75
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Mediterranean Sea",
+   "name_nl": "Middellandse Zee",
+   "class": "sea",
+   "color": "#c98472",
+   "label_mm": [
+    318,
+    118.25
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "North Atlantic Ocean",
+   "name_nl": "Atlantische Oceaan",
+   "class": "ocean",
+   "color": "#727ac9",
+   "label_mm": [
+    236.25,
+    161
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "North Pacific Ocean",
+   "name_nl": "Grote Oceaan",
+   "class": "ocean",
+   "color": "#93c972",
+   "label_mm": [
+    76.5,
+    148.75
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "North Sea",
+   "name_nl": "Noordzee",
+   "class": "sea",
+   "color": "#c972ad",
+   "label_mm": [
+    304.25,
+    99
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Norwegian Sea",
+   "name_nl": "Noorse Zee",
+   "class": "sea",
+   "color": "#72c6c9",
+   "label_mm": [
+    296.25,
+    72
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Philippine Sea",
+   "name_nl": "Filipijnenzee",
+   "class": "sea",
+   "color": "#c9b372",
+   "label_mm": [
+    513.5,
+    184.25
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Ross Sea",
+   "name_nl": "Rosszee",
+   "class": "sea",
+   "color": "#9972c9",
+   "label_mm": [
+    28.5,
+    359
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Sargasso Sea",
+   "name_nl": "Sargassozee",
+   "class": "sea",
+   "color": "#72c980",
+   "label_mm": [
+    200.5,
+    133
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Sea of Japan",
+   "name_nl": "Japanse Zee",
+   "class": "sea",
+   "color": "#c9727e",
+   "label_mm": [
+    506.5,
+    131.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Sea of Okhotsk",
+   "name_nl": "Zee van Ochotsk",
+   "class": "sea",
+   "color": "#7297c9",
+   "label_mm": [
+    551,
+    80.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "South Atlantic Ocean",
+   "name_nl": "Atlantische Oceaan",
+   "class": "ocean",
+   "color": "#b0c972",
+   "label_mm": [
+    257.75,
+    271.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "South China Sea",
+   "name_nl": "Zuid-Chinese Zee",
+   "class": "sea",
+   "color": "#c972c9",
+   "label_mm": [
+    481.25,
+    179.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "South Pacific Ocean",
+   "name_nl": "Grote Oceaan",
+   "class": "ocean",
+   "color": "#72c9af",
+   "label_mm": [
+    66,
+    265
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Southern Ocean",
+   "name_nl": "Zuidelijke Oceaan",
+   "class": "ocean",
+   "color": "#c99672",
+   "label_mm": [
+    133.5,
+    337.75
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Tasman Sea",
+   "name_nl": "Tasmanzee",
+   "class": "sea",
+   "color": "#7c72c9",
+   "label_mm": [
+    567.75,
+    246.5
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  },
+  {
+   "name": "Weddell Sea",
+   "name_nl": "Weddellzee",
+   "class": "sea",
+   "color": "#81c972",
+   "label_mm": [
+    263.5,
+    339
+   ],
+   "label_size_mm": null,
+   "show_label": true
+  }
+ ],
+ "passages": [
+  {
+   "name": "Suez Canal",
+   "kind": "canal",
+   "enabled": false,
+   "source": "config",
+   "a_lonlat": [
+    32.35,
+    31.55
+   ],
+   "b_lonlat": [
+    34,
+    27.3
+   ],
+   "a_mm": [
+    353.92,
+    136.77
+   ],
+   "b_mm": [
+    356.67,
+    144.5
+   ]
+  },
+  {
+   "name": "Suez Canal + Red Sea",
+   "kind": "canal",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    31.88,
+    31.63
+   ],
+   "b_lonlat": [
+    33.68,
+    27.65
+   ],
+   "a_mm": [
+    353.13,
+    136.62
+   ],
+   "b_mm": [
+    356.13,
+    143.87
+   ]
+  },
+  {
+   "name": "Panama Canal",
+   "kind": "canal",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    -79.85,
+    9.55
+   ],
+   "b_lonlat": [
+    -79.45,
+    8.75
+   ],
+   "a_mm": [
+    166.92,
+    175.18
+   ],
+   "b_mm": [
+    167.58,
+    176.52
+   ]
+  },
+  {
+   "name": "Kiel Canal",
+   "kind": "canal",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    8.4,
+    54.05
+   ],
+   "b_lonlat": [
+    10.4,
+    54.55
+   ],
+   "a_mm": [
+    314,
+    91.04
+   ],
+   "b_mm": [
+    317.33,
+    89.89
+   ]
+  },
+  {
+   "name": "White Sea-Baltic Canal",
+   "kind": "canal",
+   "enabled": false,
+   "source": "config",
+   "a_lonlat": [
+    35,
+    64.8
+   ],
+   "b_lonlat": [
+    29.5,
+    60
+   ],
+   "a_mm": [
+    358.33,
+    64.42
+   ],
+   "b_mm": [
+    349.17,
+    76.85
+   ]
+  },
+  {
+   "name": "Volga-Don Canal",
+   "kind": "canal",
+   "enabled": false,
+   "source": "config",
+   "a_lonlat": [
+    38.5,
+    46.5
+   ],
+   "b_lonlat": [
+    48.5,
+    45.5
+   ],
+   "a_mm": [
+    364.17,
+    107.54
+   ],
+   "b_mm": [
+    380.83,
+    109.62
+   ]
+  },
+  {
+   "name": "Corinth Canal",
+   "kind": "canal",
+   "enabled": false,
+   "source": "config",
+   "a_lonlat": [
+    22.85,
+    38.05
+   ],
+   "b_lonlat": [
+    23.05,
+    37.9
+   ],
+   "a_mm": [
+    338.08,
+    124.51
+   ],
+   "b_mm": [
+    338.42,
+    124.8
+   ]
+  },
+  {
+   "name": "Strait of Gibraltar",
+   "kind": "strait",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    -6.6,
+    35.9
+   ],
+   "b_lonlat": [
+    -4.6,
+    36.2
+   ],
+   "a_mm": [
+    289,
+    128.63
+   ],
+   "b_mm": [
+    292.33,
+    128.06
+   ]
+  },
+  {
+   "name": "Bosporus and Dardanelles",
+   "kind": "strait",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    25.6,
+    39.9
+   ],
+   "b_lonlat": [
+    29.6,
+    41.6
+   ],
+   "a_mm": [
+    342.67,
+    120.91
+   ],
+   "b_mm": [
+    349.33,
+    117.54
+   ]
+  },
+  {
+   "name": "Danish Straits",
+   "kind": "strait",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    11.6,
+    56.9
+   ],
+   "b_lonlat": [
+    13.4,
+    55
+   ],
+   "a_mm": [
+    319.33,
+    84.4
+   ],
+   "b_mm": [
+    322.33,
+    88.86
+   ]
+  },
+  {
+   "name": "Bab-el-Mandeb",
+   "kind": "strait",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    42.6,
+    13.6
+   ],
+   "b_lonlat": [
+    44.3,
+    12.2
+   ],
+   "a_mm": [
+    371,
+    168.34
+   ],
+   "b_mm": [
+    373.83,
+    170.71
+   ]
+  },
+  {
+   "name": "Strait of Hormuz",
+   "kind": "strait",
+   "enabled": true,
+   "source": "config",
+   "a_lonlat": [
+    55.6,
+    26.5
+   ],
+   "b_lonlat": [
+    57.2,
+    25.6
+   ],
+   "a_mm": [
+    392.67,
+    145.93
+   ],
+   "b_mm": [
+    395.33,
+    147.54
+   ]
+  }
+ ],
+ "fields": [],
+ "has_art": true,
+ "modified": "2026-11-22 02:32:27"
+}

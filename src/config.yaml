@@ -1,0 +1,102 @@
+# Sea board configuration. All lengths in millimetres unless stated.
+# Every script reads this file; pass --config to use another one.
+
+output_dir: /mnt/out          # everything generated lands here
+data_dir: /mnt/data/natural_earth
+
+board:
+  width_mm: 600
+  height_mm: 400
+
+map:
+  projection: miller          # miller | equirectangular (both rectangular, no rounded corners)
+  center_lon: 0               # 0 = Atlantic/Europe/Africa in the middle, seam in the Pacific at 180
+  lat_north: 84
+  lat_south: -80
+  # The map always fills the full board width. Height left over below the map
+  # becomes the bottom panel (day track, legend). If the map is taller than
+  # the board the scripts stop and tell you to narrow the latitude range.
+
+tiles:
+  count: 80                   # total number of sea tiles
+  raster_px_per_mm: 4         # working resolution of the tile computation
+  lloyd_iterations: 40        # relaxation rounds; more = more even sizes
+  border_noise: 0.35          # 0 = straight-ish borders, 0.5 = very wiggly
+  noise_scale_mm: 40          # size of the wiggles
+  sea_border_wiggle_mm: 10    # how far straight sea/ocean borders are bent (0 = keep Natural Earth lines)
+  min_water_component_mm2: 60 # smaller isolated waters (lakes, closed lagoons) are not playable
+  pawn_diameter_mm: 12        # seas where a pawn this size does not fit are not drawn
+  open_sea_contact: 1.5       # such a sea joins its neighbours if its shared edge / sqrt(area) >= this, else left out
+  max_width_factor: 1.6       # a tile may be at most this x as wide as an average tile (sqrt of mean area)
+  min_wrap_edge_mm: 4         # tiles must share at least this much edge across the seam to connect
+  refine_rounds: 5            # rounds of fixing too wide / too narrow tiles (each re-runs the layout)
+  random_seed: 7
+
+seas:
+  # Which Natural Earth marine areas become their own sea region (>= 1 tile each).
+  # The 7 oceans are always regions. From the candidates below, the `biggest`
+  # ones by real-world area (km2) become their own sea; the rest merge into
+  # the sea or ocean around them.
+  biggest: 25
+  candidate_classes: [sea, gulf, bay]
+  include_names: ["North Sea", "Baltic Sea", "Black Sea", "Red Sea", "Persian Gulf"]   # always included as well
+  exclude_names: ["Caspian Sea", "Inner Seas", "Inner Sea"]   # the Caspian is a lake
+
+passages:
+  # Explicit connections between tiles. Straits are only drawn when the raster
+  # does not already connect the waters. Canals are always drawn.
+  # Points are [lon, lat] in open water on either side.
+  - {name: Suez Canal,       kind: canal,  enabled: false, a: [32.35, 31.55], b: [34.00, 27.30]}   # only useful when the Red Sea is drawn
+  - {name: Suez Canal + Red Sea, kind: canal, enabled: true, a: [32.35, 31.55], b: [45.00, 12.30],   # Mediterranean to Arabian Sea (Gulf of Aden) in one step
+     via: [[32.33, 30.60], [32.56, 29.92], [32.90, 29.30], [33.60, 27.90], [34.80, 26.20], [36.40, 23.60],
+           [38.20, 20.60], [40.00, 17.40], [41.80, 14.80], [43.30, 12.70]]}
+  - {name: Panama Canal,     kind: canal,  enabled: true,  a: [-79.85, 9.55], b: [-79.45, 8.75]}
+  - {name: Kiel Canal,       kind: canal,  enabled: true,  a: [8.40, 54.05],  b: [10.40, 54.55]}
+  - {name: White Sea-Baltic Canal, kind: canal, enabled: false, a: [35.0, 64.8], b: [29.5, 60.0]}   # 4 m draft, via lakes
+  - {name: Volga-Don Canal,  kind: canal,  enabled: false, a: [38.5, 46.5],  b: [48.5, 45.5]}     # via rivers to the Caspian (a lake)
+  - {name: Corinth Canal,    kind: canal,  enabled: false, a: [22.85, 38.05], b: [23.05, 37.90]}  # 6.4 km, inside the Mediterranean
+  - {name: Strait of Gibraltar, kind: strait, enabled: true, a: [-6.6, 35.9], b: [-4.6, 36.2]}
+  - {name: Bosporus and Dardanelles, kind: strait, enabled: true, a: [25.6, 39.9], b: [29.6, 41.6]}
+  - {name: Danish Straits,   kind: strait, enabled: true,  a: [11.6, 56.9],  b: [13.4, 55.0]}
+  - {name: Bab-el-Mandeb,    kind: strait, enabled: true,  a: [42.6, 13.6],  b: [44.3, 12.2]}
+  - {name: Strait of Hormuz, kind: strait, enabled: true,  a: [55.6, 26.5],  b: [57.2, 25.6]}
+
+art:
+  dpi: 150                    # SDXL art resolution; upscaled to print dpi in compose
+  model: stabilityai/stable-diffusion-xl-base-1.0
+  strength: 0.40              # 0.2 = close to the real map, 0.6 = much more painterly (and less accurate)
+  steps: 30
+  guidance: 6.0
+  tile_px: 1024
+  overlap_px: 256
+  seed: 1234
+  prompt: >-
+    hand-painted illustrated world map, gouache and watercolor painting, realistic natural colors,
+    deep blue oceans with lighter turquoise shallows near the coasts, green forests, ochre deserts,
+    white ice, soft brush strokes, detailed painted texture, top-down view, board game art
+  negative_prompt: >-
+    text, letters, words, labels, numbers, watermark, signature, grid, lines, borders, frame,
+    compass rose, ships, people, photo, blurry, oversaturated, neon colors
+
+compose:
+  map_art: guide              # guide = Natural Earth atlas map (chosen 2026-11-22) | art = SDXL painting (make_art.py full)
+  print_dpi: 300
+  language: en                # en | nl  (labels on the board)
+  font: "DejaVu Serif"
+  tile_border_mm: 0.5
+  region_border_mm: 1.0
+  border_color: "#f4ecd8"
+  show_tile_numbers: true
+  show_sea_names: true
+  ocean_label_mm: 6.0         # letter height of ocean names
+  sea_label_mm: 3.2           # letter height of sea names
+
+day_track:
+  # The time slider: 5 workdays, then the weekend, in the bottom panel.
+  space_mm: 26                # size of one day space
+  gap_mm: 4                   # gap between days
+  weekend_gap_mm: 12          # extra gap before the weekend
+  workday_color: "#2f5d7c"
+  weekend_color: "#c8743a"
+  text_color: "#f4ecd8"
+  panel_color: "#16324a"

@@ -1,0 +1,23 @@
+# Python 3.12. Rebuild:
+#   (from the project root, the folder holding src/ and webtool/)
+#   uv venv --system-site-packages .venv
+#   uv pip install --python .venv/bin/python -r webtool/requirements.txt
+#
+# Web tool (server.py) and the pipeline in ../src (make_tiles, compose_board)
+numpy==2.5.5
+scipy==1.18.1
+PyYAML==6.0.3
+pillow==13.0.0
+cairosvg==2.9.1
+pyshp==3.1.9
+numba==0.68.1
+scikit-image==0.26.0
+
+# SDXL art (make_art.py samples/full). Currently taken from the system Python
+# (--system-site-packages). Uncomment if the new venv must be self-contained;
+# torch needs the CUDA build that matches your driver (here: 2.15.0+cu134).
+# torch==2.15.0
+# diffusers==0.42.1
+# transformers==5.22.2
+# accelerate==1.15.0
+# safetensors==0.8.0

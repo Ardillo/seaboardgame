@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sea Board Designer</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header id="menubar">
+  <div id="brand"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 15c3-3 6 3 9 0s6 3 9 0M3 9c3-3 6 3 9 0s6 3 9 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Sea Board</div>
+  <nav id="menus"></nav>
+  <div id="docinfo">
+    <button id="regen-flag" hidden title="Settings changed that need new tiles">⟳ Regenerate needed</button>
+    <span id="jobpill" hidden></span>
+    <span id="docname">no design</span><span id="dirty" title="Unsaved changes"></span>
+  </div>
+</header>
+<div id="optbar"></div>
+<main id="main">
+  <aside id="toolbar"></aside>
+  <section id="stage">
+    <canvas id="view"></canvas>
+    <div id="toast"></div>
+    <div id="empty" hidden>
+      <h1>Sea Board Designer</h1>
+      <p>Start from the main project's current board, or generate new tiles from the settings in the menubar.</p>
+      <div class="row"><button class="primary" id="empty-import">Import main board</button><button id="empty-generate">Generate from config…</button><button id="empty-open">Open design…</button></div>
+    </div>
+  </section>
+  <aside id="sidebar"><div id="tabs"></div><div id="tabbody"></div></aside>
+</main>
+<footer id="status"><span id="st-pos"></span><span id="st-tile"></span><span id="st-msg"></span><span id="st-zoom"></span></footer>
+<dialog id="dialog"><form method="dialog" id="dlg-form"><h2 id="dlg-title"></h2><div id="dlg-body"></div><menu id="dlg-buttons"></menu></form></dialog>
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

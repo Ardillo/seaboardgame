@@ -1,0 +1,193 @@
+# Design tool copy of ../src/config.yaml (edited from the web menubar).
+# The original stays untouched; comments live in the original.
+output_dir: ../out
+data_dir: ../data/natural_earth
+board:
+  width_mm: 600
+  height_mm: 400
+map:
+  projection: miller
+  center_lon: 0
+  lat_north: 84
+  lat_south: -80
+tiles:
+  count: 80
+  raster_px_per_mm: 4
+  lloyd_iterations: 40
+  border_noise: 0.35
+  noise_scale_mm: 40
+  sea_border_wiggle_mm: 10
+  min_water_component_mm2: 60
+  pawn_diameter_mm: 12
+  max_width_factor: 1.6
+  min_wrap_edge_mm: 4
+  refine_rounds: 5
+  random_seed: 7
+  open_sea_contact: 1.5
+seas:
+  biggest: 25
+  candidate_classes:
+  - sea
+  - gulf
+  - bay
+  include_names:
+  - North Sea
+  - Baltic Sea
+  - Black Sea
+  - Red Sea
+  - Persian Gulf
+  exclude_names:
+  - Caspian Sea
+  - Inner Seas
+  - Inner Sea
+passages:
+- name: Suez Canal
+  kind: canal
+  enabled: false
+  a:
+  - 32.35
+  - 31.55
+  b:
+  - 34
+  - 27.3
+- name: Suez Canal + Red Sea
+  kind: canal
+  enabled: true
+  a:
+  - 31.88
+  - 31.63
+  b:
+  - 33.68
+  - 27.65
+- name: Panama Canal
+  kind: canal
+  enabled: true
+  a:
+  - -79.85
+  - 9.55
+  b:
+  - -79.45
+  - 8.75
+- name: Kiel Canal
+  kind: canal
+  enabled: true
+  a:
+  - 8.4
+  - 54.05
+  b:
+  - 10.4
+  - 54.55
+- name: White Sea-Baltic Canal
+  kind: canal
+  enabled: false
+  a:
+  - 35
+  - 64.8
+  b:
+  - 29.5
+  - 60
+- name: Volga-Don Canal
+  kind: canal
+  enabled: false
+  a:
+  - 38.5
+  - 46.5
+  b:
+  - 48.5
+  - 45.5
+- name: Corinth Canal
+  kind: canal
+  enabled: false
+  a:
+  - 22.85
+  - 38.05
+  b:
+  - 23.05
+  - 37.9
+- name: Strait of Gibraltar
+  kind: strait
+  enabled: true
+  a:
+  - -6.6
+  - 35.9
+  b:
+  - -4.6
+  - 36.2
+- name: Bosporus and Dardanelles
+  kind: strait
+  enabled: true
+  a:
+  - 25.6
+  - 39.9
+  b:
+  - 29.6
+  - 41.6
+- name: Danish Straits
+  kind: strait
+  enabled: true
+  a:
+  - 11.6
+  - 56.9
+  b:
+  - 13.4
+  - 55
+- name: Bab-el-Mandeb
+  kind: strait
+  enabled: true
+  a:
+  - 42.6
+  - 13.6
+  b:
+  - 44.3
+  - 12.2
+- name: Strait of Hormuz
+  kind: strait
+  enabled: true
+  a:
+  - 55.6
+  - 26.5
+  b:
+  - 57.2
+  - 25.6
+art:
+  dpi: 150
+  model: stabilityai/stable-diffusion-xl-base-1.0
+  strength: 0.4
+  steps: 30
+  guidance: 6
+  tile_px: 1024
+  overlap_px: 256
+  seed: 1234
+  prompt: hand-painted illustrated world map, gouache and watercolor painting, realistic natural colors, deep blue oceans
+    with lighter turquoise shallows near the coasts, green forests, ochre deserts, white ice, soft brush strokes, detailed
+    painted texture, top-down view, board game art
+  negative_prompt: text, letters, words, labels, numbers, watermark, signature, grid, lines, borders, frame, compass rose,
+    ships, people, photo, blurry, oversaturated, neon colors
+compose:
+  print_dpi: 300
+  language: en
+  font: DejaVu Serif
+  tile_border_mm: 0.5
+  region_border_mm: 1
+  border_color: '#f4ecd8'
+  show_tile_numbers: true
+  show_sea_names: true
+  ocean_label_mm: 6
+  sea_label_mm: 3.2
+  map_art: guide
+day_track:
+  space_mm: 26
+  gap_mm: 4
+  weekend_gap_mm: 12
+  workday_color: '#2f5d7c'
+  weekend_color: '#c8743a'
+  text_color: '#f4ecd8'
+  panel_color: '#16324a'
+webtool:
+  frame:
+    top: 0
+    right: 0
+    bottom: 0
+    left: 0
+  frame_color: '#16324a'
+  snap_mm: 1
