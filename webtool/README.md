@@ -33,6 +33,12 @@ Only the editing aids (problems, water without a tile, selection) stay on screen
 **Passages** can bend: click one, then drag its line to add a waypoint, drag a point to move it,
 Alt+click a point to remove it. Inspect › *Use main project's route* restores one.
 
+**Edge arrows** (around the world): drag one, or select it and use the up/down keys; it stays on the edge its
+two tiles share and both sides move together. Inspect has *Hide arrow only* (still connects), *Close crossing*
+(no connection) and *Back to automatic*; hidden and closed ones are listed under Report › Crossings.
+Size and colour of all arrows are under View › Arrows. All of this is saved per design and exported.
+Untouched arrows keep the pipeline's positions (with another size they shift only if needed to stay on the map).
+
 Undo/redo covers every edit (Ctrl+Z / Ctrl+Y). Designs autosave every minute (File menu).
 
 To keep fields off the map, set a **Frame** (menubar) and generate new tiles: the map

@@ -235,7 +235,7 @@ export function pyRound2(v) {
 
 // East-west crossings: tiles meeting at the left and right map edge. Each arrow sits where it is
 // clear of pawn spots and other arrows (as in make_tiles.py). spots: pawn spots in map mm.
-export function wraps(lab, W, H, ppm, spots, minEdgeMm) {
+export function wraps(lab, W, H, ppm, spots, minEdgeMm, edits = {}, size = 1) {
   const runs = new Map();
   for (let r = 0; r < H; r++) {
     const a = lab[r * W], b = lab[r * W + W - 1];
@@ -266,9 +266,33 @@ export function wraps(lab, W, H, ppm, spots, minEdgeMm) {
     }
     w.y_mm = pyRound2(best);
     obstacles.push(w.y_mm);
-    delete w.rows;
+  }
+  // what was adjusted by hand goes on top, so it never moves the other arrows
+  for (const w of out) {
+    w.key = `${w.left}-${w.right}`;
+    const edit = edits[w.key] || {};
+    w.edited = !!edits[w.key];
+    w.hidden = !!edit.hidden;
+    w.closed = !!edit.closed;
+    if (edit.y_mm !== undefined || size !== 1) w.y_mm = arrowSpot(w.rows, ppm, H, edit.y_mm ?? w.y_mm, size);
   }
   return out;
+}
+
+export const ARROW_ROOM = 2.35;     // as in server.py
+
+// the spots on a shared edge where the whole arrow is on the map (all of them if it fits nowhere)
+export function arrowSpots(rows, ppm, H, size) {
+  const room = ARROW_ROOM * size;
+  const all = rows.map((r) => (r + 0.5) / ppm);
+  const inside = all.filter((v) => v >= room && v <= H / ppm - room);
+  return inside.length ? inside : all;
+}
+
+export function arrowSpot(rows, ppm, H, want, size) {
+  let best = 0, off = Infinity;
+  for (const v of arrowSpots(rows, ppm, H, size)) if (Math.abs(v - want) < off) { off = Math.abs(v - want); best = v; }
+  return pyRound2(best);
 }
 
 // ---------------------------------------------------------------- border lines

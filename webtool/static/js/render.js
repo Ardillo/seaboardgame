@@ -250,20 +250,31 @@ export class View {
         }
       }
     }
-    // wrap arrows
-    if (look.wraps && a?.wraps) {
-      ctx.lineCap = "butt"; ctx.lineJoin = "miter";
+    // wrap arrows; the selected one also shows when hidden or closed, with the edge it can slide along
+    if (a?.wraps) {
+      const k = look.arrow_size, colour = look.arrow_color || ink;
+      ctx.lineCap = "butt";
       for (const w of a.wraps) {
-        const y = w.y_mm;
+        const sel = app.sel.arrow === w.key;
+        const drawn = look.wraps && !w.hidden && !w.closed;
+        if (!drawn && !sel) continue;
+        if (sel) this.drawArrowTrack(ctx, d, w, iw);
+        const y = w.y_mm, tint = !sel ? colour : w.closed ? "#ff6b6b" : "#ffd23c";
         for (const [x, s, target] of [[0, -1, w.right], [iw, 1, w.left]]) {
-          const base = x - s * 3.2;
-          ctx.beginPath(); ctx.moveTo(base, y - 2.2); ctx.lineTo(x, y); ctx.lineTo(base, y + 2.2); ctx.closePath();
-          ctx.fillStyle = ink; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
-          ctx.lineWidth = 0.3; ctx.strokeStyle = "#0b1d2b"; ctx.stroke();
-          ctx.font = `bold 3.6px ${font}`;
-          ctx.textAlign = s < 0 ? "left" : "right";
-          haloText(ctx, String(target), base - s * 0.8, y + 1.25, ink, "#0b1d2b", 0.8);
+          const base = x - s * 3.2 * k;
+          ctx.beginPath(); ctx.moveTo(base, y - 2.2 * k); ctx.lineTo(x, y); ctx.lineTo(base, y + 2.2 * k); ctx.closePath();
           ctx.lineJoin = "miter";
+          if (drawn) {
+            ctx.fillStyle = tint; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+            ctx.lineWidth = 0.3 * k; ctx.strokeStyle = "#0b1d2b"; ctx.stroke();
+          } else {      // only on screen, while selected
+            ctx.setLineDash([0.7, 0.6]);
+            ctx.lineWidth = 0.4; ctx.strokeStyle = tint; ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          ctx.font = `bold ${3.6 * k}px ${font}`;
+          ctx.textAlign = s < 0 ? "left" : "right";
+          haloText(ctx, String(target), base - s * 0.8 * k, y + 1.25 * k, tint, "#0b1d2b", 0.8 * k);
         }
       }
     }
@@ -327,7 +338,7 @@ export class View {
     // fields (board coordinates)
     if (look.fields) {
       const text = boardText(app);
-      for (const f of d.meta.fields) if (!f.hidden) drawField(ctx, f, app.sel.field === f.id, ink, font, text, app.italic !== false);
+      for (const f of d.meta.fields) if (!f.hidden) drawField(ctx, f, app.sel.field === f.id, ink, font, text, app.italic !== false, look.arrow_color);
     }
     // brush cursor
     if ((app.tool === "paint" || app.tool === "erase") && app.hoverBoard) {
@@ -335,9 +346,35 @@ export class View {
       ctx.strokeStyle = app.tool === "erase" ? "#ff8080" : "#ffffff"; ctx.lineWidth = 1.2 / this.scale; ctx.stroke();
     }
   }
+
+  drawArrowTrack(ctx, d, w, iw) {
+    ctx.fillStyle = "#ffd23c";
+    ctx.globalAlpha = 0.45;
+    let from = 0;
+    for (let i = 1; i <= w.rows.length; i++) {
+      if (i < w.rows.length && w.rows[i] === w.rows[i - 1] + 1) continue;
+      const y = w.rows[from] / d.ppm, h = (w.rows[i - 1] + 1) / d.ppm - y;
+      ctx.fillRect(0, y, 1.2, h);
+      ctx.fillRect(iw - 1.2, y, 1.2, h);
+      from = i;
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ---------------------------------------------------------------- helpers
+// is map point (x, y) on this arrow? "point" = the triangle, "number" = the tile number next to it
+export function arrowPart(w, x, y, width, size, slack) {
+  if (Math.abs(y - w.y_mm) > 2.2 * size + slack) return null;
+  for (const [edge, inward, target] of [[0, 1, w.right], [width, -1, w.left]]) {
+    const depth = (x - edge) * inward;
+    if (depth < -slack) continue;
+    if (depth <= 3.2 * size + slack) return "point";
+    if (depth <= (4 + 2.5 * String(target).length) * size) return "number";
+  }
+  return null;
+}
+
 function line(ctx, ax, ay, bx, by) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -405,7 +442,7 @@ export function fieldLabels(f, text) {
   };
 }
 
-function drawLegend(ctx, f, ink, font, text) {
+function drawLegend(ctx, f, ink, font, text, arrowColour) {
   const k = Math.min(f.w / 62, f.h / 18);
   const colour = f.text_color || ink;
   ctx.save();
@@ -416,18 +453,18 @@ function drawLegend(ctx, f, ink, font, text) {
   [[2.2, 1.4], [0.6, 1.2], null].forEach((dash, i) => {
     const y = -6 + 6 * i;
     if (dash) { ctx.setLineDash(dash); line(ctx, -30, y, -20, y); ctx.setLineDash([]); }
-    else { ctx.beginPath(); ctx.moveTo(-30, y - 2); ctx.lineTo(-26.8, y); ctx.lineTo(-30, y + 2); ctx.closePath(); ctx.fill(); }
+    else { ctx.beginPath(); ctx.moveTo(-30, y - 2); ctx.lineTo(-26.8, y); ctx.lineTo(-30, y + 2); ctx.closePath(); ctx.fillStyle = arrowColour || colour; ctx.fill(); ctx.fillStyle = colour; }
     ctx.fillText(text.legend[i], -17, y + 1.3);
   });
   ctx.restore();
 }
 
 // same layout as field_svg / legend_svg in server.py
-export function drawField(ctx, f, selected, ink, font, text, italic) {
+export function drawField(ctx, f, selected, ink, font, text, italic, arrowColour) {
   ctx.save();
   ctx.translate(f.x, f.y);
   ctx.rotate(((f.rotation || 0) * Math.PI) / 180);
-  if (f.shape === "legend") drawLegend(ctx, f, ink, font, text);
+  if (f.shape === "legend") drawLegend(ctx, f, ink, font, text, arrowColour);
   else {
     fieldPath(ctx, f);
     ctx.globalAlpha = f.opacity ?? 1;

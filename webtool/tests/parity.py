@@ -102,6 +102,11 @@ def main():
         panel = f'<line x1="0" y1="{theirs["board"]["map_height_mm"]:.2f}"'
         end = next((i for i, el in enumerate(full) if el.startswith(panel)), full.index("</svg>"))
         check("map layers", mine == full[:end], first_difference(full[:end], mine))
+        # the tool draws the arrows itself when their size or colour is changed: same drawing at the standard style
+        c = server.main_config()["compose"]
+        drawn = "\n".join(server.arrows_svg(theirs["wraps"], theirs["board"]["width_mm"], c["font"], c["border_color"]))
+        check("the tool's own arrow drawing", drawn in "\n".join(full),
+              "compose_board.py draws arrows differently: change arrows_svg (server.py) and the arrows in render.js")
         a = np.asarray(Image.open(ref / "board/board_preview.jpg").convert("RGB")).astype(int)
         b = np.asarray(Image.open(exp / "board_preview.jpg").convert("RGB")).astype(int)
         if a.shape != b.shape:
