@@ -77,6 +77,18 @@ WEBTOOL_COMMENTS = {
 }
 
 
+# words on the board; the page gets them through /api/state
+BOARD_TEXT = {
+    "en": {"days": ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
+           "day_names": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+           "legend": ["Canal", "Strait", "Sail around the world"]},
+    "nl": {"days": ["MA", "DI", "WO", "DO", "VR", "ZA", "ZO"],
+           "day_names": ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"],
+           "legend": ["Kanaal", "Zeestraat", "Rond de wereld varen"]},
+}
+DESIGN_VERSION = 2      # 2: day track and legend are fields
+
+
 # ------------------------------------------------------------------ config
 def load_yaml(path):
     return yaml.safe_load(Path(path).read_text())
@@ -390,10 +402,47 @@ def build_design(job, name, out_dir, cfg, frame, total_w, total_h, source, run_d
         "tiles": tiles, "seas": seas, "passages": config_passages(cfg, proj), "fields": [],
         "has_art": art is not None,
     }
+    upgrade_design(design, my_config())
     (d / "design.json").write_text(json.dumps(design, indent=1, ensure_ascii=False))
     set_state(last_design=name)
     job.say(f"design saved: {d}")
     return {"design": name}
+
+
+def default_board_fields(board, cfg):
+    """The seven day squares and the legend, as fields at their default place in the bottom panel."""
+    fr, dt = board["frame"], cfg["day_track"]
+    W, PH = float(board["inner_width_mm"]), float(board["panel_height_mm"])
+    middle = float(fr["top"]) + float(board["map_height_mm"]) + PH / 2
+    size = min(float(dt["space_mm"]), PH - 6) if PH > 5 else 0
+    gap, weekend_gap = float(dt["gap_mm"]), float(dt["weekend_gap_mm"])
+    days = []
+    if size > 0:
+        x = float(fr["left"]) + (W - (7 * size + 5 * gap + weekend_gap)) / 2 + size / 2
+        for i in range(7):
+            # label / sublabel None = the day's name in the board language, until renamed
+            days.append({"id": f"day-{i}", "kind": "day", "group": "day-track", "day": i,
+                         "label": None, "sublabel": None, "shape": "rounded",
+                         "x": round(x, 2), "y": round(middle, 2), "w": round(size, 2), "h": round(size, 2),
+                         "rotation": 0, "color": dt["weekend_color"] if i >= 5 else dt["workday_color"],
+                         "text_color": dt["text_color"], "opacity": 1, "notes": ""})
+            x += size + (weekend_gap if i == 4 else gap)
+    legend = {"id": "legend", "kind": "legend", "group": None, "shape": "legend", "label": "",
+              "x": round(float(fr["left"]) + W - 40, 2), "y": round(middle, 2), "w": 62, "h": 18,
+              "rotation": 0, "opacity": 1, "notes": ""}
+    return {"days": days, "legend": legend}
+
+
+def upgrade_design(design, cfg):
+    """Older designs had the day track and legend painted on: give them fields instead (in memory only)."""
+    if design.get("version", 1) >= DESIGN_VERSION:
+        return design
+    fields = design.get("fields") or []
+    if design["board"]["panel_height_mm"] > 5:
+        new = default_board_fields(design["board"], cfg)
+        fields = new["days"] + [new["legend"]] + fields     # first = underneath the user's own fields
+    design["fields"], design["version"] = fields, DESIGN_VERSION
+    return design
 
 
 def list_designs():
@@ -657,6 +706,35 @@ def esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
+def resolve_field(f, text):
+    """A field with the day names filled in where they were not renamed."""
+    f, i = dict(f), f.get("day")
+    if i is not None:
+        for key, words in (("label", "days"), ("sublabel", "day_names")):
+            if f.get(key) is None:
+                f[key] = text[words][i]
+    return f
+
+
+def legend_svg(f, font, ink, text):
+    colour = esc(f.get("text_color") or ink)
+    k = min(float(f["w"]) / 62, float(f["h"]) / 18)
+    op = float(f["opacity"] if f.get("opacity") is not None else 1)
+    g = [f'<g transform="translate({f["x"]:.2f},{f["y"]:.2f}) rotate({float(f.get("rotation") or 0):.1f}) '
+         f'scale({k:.4f})" opacity="{op}">']
+    for i, dash in enumerate(("2.2,1.4", "0.6,1.2", None)):
+        y = -6 + 6 * i
+        if dash:
+            g.append(f'<line x1="-30" y1="{y}" x2="-20" y2="{y}" stroke="{colour}" stroke-width="0.9" '
+                     f'stroke-dasharray="{dash}"/>')
+        else:
+            g.append(f'<path d="M-30,{y - 2} L-26.8,{y} L-30,{y + 2} Z" fill="{colour}"/>')
+        g.append(f'<text x="-17" y="{y + 1.3}" font-family="{esc(font)}" font-size="3.6" fill="{colour}">'
+                 f'{esc(text["legend"][i])}</text>')
+    g.append("</g>")
+    return "\n".join(g)
+
+
 def field_svg(f, font, ink):
     x, y = float(f.get("x", 0)), float(f.get("y", 0))
     w, h = float(f.get("w", 20)), float(f.get("h", 20))
@@ -679,14 +757,23 @@ def field_svg(f, font, ink):
         rx = min(w, h) * (0.18 if shape == "rounded" else 0.04)
         g.append(f'<rect x="{-w / 2:.2f}" y="{-h / 2:.2f}" width="{w:.2f}" height="{h:.2f}" rx="{rx:.2f}" {style}/>')
     label = str(f.get("label") or "")
+    sub = str(f.get("sublabel") or "")
+    tc = f.get("text_color") or ink
     if label:
         lines = label.split("\n")
-        fs = float(f.get("font_mm") or max(min(w, h) * 0.28, 1.5))
-        tc = f.get("text_color") or ink
-        y0 = -(len(lines) - 1) * fs * 0.6
+        if sub:     # big label with a small line under it
+            fs = float(f.get("font_mm") or round(min(w, h) * 0.3, 1))
+            base = h * 0.02 - (len(lines) - 1) * fs * 1.2
+        else:
+            fs = float(f.get("font_mm") or max(min(w, h) * 0.28, 1.5))
+            base = fs * 0.35 - (len(lines) - 1) * fs * 0.6
         for i, ln in enumerate(lines):
-            g.append(f'<text x="0" y="{y0 + i * fs * 1.2 + fs * 0.35:.2f}" font-family="{esc(font)}" '
+            g.append(f'<text x="0" y="{base + i * fs * 1.2:.2f}" font-family="{esc(font)}" '
                      f'font-size="{fs:.2f}" font-weight="bold" text-anchor="middle" fill="{esc(tc)}">{esc(ln)}</text>')
+    if sub:
+        g.append(f'<text x="0" y="{h * (0.3 if label else 0.05):.2f}" font-family="{esc(font)}" '
+                 f'font-size="{min(w, h) * 0.13:.1f}" font-style="italic" text-anchor="middle" '
+                 f'fill="{esc(tc)}" fill-opacity="0.85">{esc(sub)}</text>')
     g.append("</g>")
     return "\n".join(g)
 
@@ -697,6 +784,9 @@ def job_export(name, png):
 
     def fn(job):
         cfg = my_config()
+        upgrade_design(design, cfg)
+        text = BOARD_TEXT.get(cfg["compose"]["language"], BOARD_TEXT["en"])
+        fields = [resolve_field(f, text) for f in design.get("fields", []) if not f.get("hidden")]
         W, H, ppm = design["raster"]["W"], design["raster"]["H"], design["raster"]["ppm"]
         lab = np.frombuffer((d / "labels.bin").read_bytes(), dtype="<i2").reshape(H, W).astype(np.int32)
         exp = d / "export"
@@ -741,10 +831,9 @@ def job_export(name, png):
               "tiles": tiles, "seas": out_seas,
               "edges": [{"tiles": [int(x), int(y)], "kind": k} for (x, y), k in sorted(an["edges"].items())],
               "wraps": an["wraps"], "passages": an["passages"],
-              "fields": design.get("fields", []),
+              "fields": fields,
               "fields_note": "field x/y are the centre in mm on the whole board (frame included); "
                              "everything else is in mm on the map area"}
-        (exp / "tiles/tiles.json").write_text(json.dumps(tj, indent=1, ensure_ascii=False))
         (exp / "tiles/borders.json").write_text(json.dumps(borders, ensure_ascii=False))
         for f in (exp / "art").glob("*.png"):
             f.unlink()
@@ -756,7 +845,14 @@ def job_export(name, png):
         ecfg["output_dir"] = rel_src(exp)
         ecfg["data_dir"] = rel_src(data_path(ecfg))
         (exp / "config.yaml").write_text(yaml.safe_dump(ecfg, sort_keys=False, allow_unicode=True, width=120))
-        run_cmd(job, [PY, SRC / "compose_board.py", "--config", exp / "config.yaml", "--art", art_choice, "--no-png"])
+        # compose_board.py paints a fixed day track and legend into any panel higher than 5 mm. Here they are
+        # fields, so it is told the panel has no height; the real height goes into the file afterwards.
+        (exp / "tiles/tiles.json").write_text(json.dumps({**tj, "board": {**tj["board"], "panel_height_mm": 0}}))
+        try:
+            run_cmd(job, [PY, SRC / "compose_board.py", "--config", exp / "config.yaml", "--art", art_choice,
+                          "--no-png"])
+        finally:
+            (exp / "tiles/tiles.json").write_text(json.dumps(tj, indent=1, ensure_ascii=False))
         job.say("adding frame and fields")
         inner = (exp / "board/board.svg").read_text()
         first, rest = inner.split("\n", 1)
@@ -769,8 +865,13 @@ def job_export(name, png):
                  f'<rect width="{TW}" height="{TH}" fill="{esc(cfg["webtool"]["frame_color"])}"/>',
                  f'<svg x="{fr["left"]}" y="{fr["top"]}" width="{iw}" height="{ih}" viewBox="0 0 {iw} {ih}" '
                  f'overflow="hidden">', rest]
-        for f in design.get("fields", []):
-            parts.append(field_svg(f, c["font"], ink))
+        if b["panel_height_mm"] > 5:
+            y = fr["top"] + b["map_height_mm"]
+            parts.append(f'<line x1="{fr["left"]}" y1="{y:.2f}" x2="{fr["left"] + iw}" y2="{y:.2f}" '
+                         f'stroke="{esc(ink)}" stroke-width="0.6"/>')
+        for f in fields:
+            parts.append(legend_svg(f, c["font"], ink, text) if f.get("shape") == "legend"
+                         else field_svg(f, c["font"], ink))
         parts.append("</svg>")
         svg = "\n".join(parts)
         (exp / "board.svg").write_text(svg)
@@ -881,6 +982,7 @@ class Handler(BaseHTTPRequestHandler):
                 "job": cur.as_dict() if cur else None,
                 "main_board": {"exists": main_tiles.exists(),
                                "modified": main_tiles.stat().st_mtime if main_tiles.exists() else None},
+                "board_text": BOARD_TEXT,
                 "data_ok": (data_path(my_config()) / "ne_50m_land").exists(),
                 "paths": {"src": os.path.relpath(SRC, WEB), "main_out": os.path.relpath(MAIN_OUT, WEB), "webtool": "."}})
         if p == ["config"] and method == "PUT":
@@ -903,6 +1005,9 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = main
             save_my_config(cfg)
             return self.send(200, {"ok": True, "config": my_config()})
+        if p == ["board-fields"] and method == "POST":
+            req = self.json_body()
+            return self.send(200, default_board_fields(req["board"], req["config"]))
         if p[:1] == ["jobs"]:
             if p == ["jobs", "current"] and method == "GET":
                 cur = CURRENT_JOB[0]
@@ -935,8 +1040,11 @@ class Handler(BaseHTTPRequestHandler):
             d = design_dir(p[1])
             rest = p[2:]
             if not rest and method == "GET":
+                f = d / "design.json"
+                if not f.is_file():
+                    raise ApiError(404, f"unknown design: {p[1]}")
                 set_state(last_design=p[1])
-                return self.send_file(d / "design.json", "application/json")
+                return self.send(200, upgrade_design(json.loads(f.read_text()), my_config()))
             if not rest and method == "PUT":
                 meta = self.json_body()
                 if not (d / "labels.bin").exists() and not meta.get("_new"):
