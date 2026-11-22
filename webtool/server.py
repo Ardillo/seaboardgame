@@ -89,13 +89,15 @@ BOARD_TEXT = {
            "day_names": ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"],
            "legend": ["Kanaal", "Zeestraat", "Rond de wereld varen"]},
 }
+ARROW_ROOM = 2.35       # mm above and below an arrow's point at size 1: half its height plus the outline
 NOT_OVERRIDDEN = ("data_dir", "output_dir", "passages")
 DESIGN_VERSION = 3      # 2: day track and legend are fields; 3: passages belong to the design, with waypoints
 
 # What is drawn on the board, per design (View menu); editor and export both follow it.
 # Map art, tile numbers and sea names are the compose.* settings.
 LOOK_DEFAULT = {"borders": True, "circles": False, "passages": True, "wraps": True, "fields": True,
-                "fill": "none", "fill_opacity": 0.28}
+                "fill": "none", "fill_opacity": 0.28,
+                "arrow_size": 1.0, "arrow_color": None}     # None = compose.border_color
 LOOK_BEFORE = {**LOOK_DEFAULT, "fill": "sea"}       # what the editor showed for designs without a look
 
 
@@ -678,8 +680,10 @@ def chain_segments(segs):
     return lines
 
 
-def edge_arrows(lab, ppm, tiles, min_edge_mm):
-    """East-west crossings; each arrow sits where it is clear of pawn spots and other arrows (as in make_tiles.py)."""
+def edge_arrows(lab, ppm, tiles, min_edge_mm, edits=None, size=1.0):
+    """East-west crossings; each arrow sits where it is clear of pawn spots and other arrows (as in make_tiles.py).
+
+    edits ({"left-right": {y_mm, hidden, closed}}, from the design) go on top. They never move the other arrows."""
     W = lab.shape[1]
     a, b = lab[:, 0], lab[:, -1]
     runs = defaultdict(list)
@@ -692,14 +696,49 @@ def edge_arrows(lab, ppm, tiles, min_edge_mm):
     near_edge = [y for x, y in spots if x < 22 or x > W / ppm - 22]
     placed = []
     for wv in sorted(wraps, key=lambda w: len(w["rows"])):
-        cand = (np.array(wv.pop("rows")) + 0.5) / ppm
+        cand = (np.array(wv["rows"]) + 0.5) / ppm
         inside = cand[(cand > cand.min() + 1.5) & (cand < cand.max() - 1.5)]
         cand = inside if len(inside) else cand
         obstacles = np.array(near_edge + placed or [1e9])
         clear = np.abs(cand[:, None] - obstacles[None, :]).min(1)
         wv["y_mm"] = round(float(cand[int(np.argmax(clear))]), 2)
         placed.append(wv["y_mm"])
+    for wv in wraps:
+        rows = wv.pop("rows")
+        edit = (edits or {}).get(f"{wv['left']}-{wv['right']}", {})
+        if "y_mm" in edit or size != 1:
+            wv["y_mm"] = arrow_spot(rows, ppm, lab.shape[0], edit.get("y_mm", wv["y_mm"]), size)
+        for flag in ("hidden", "closed"):
+            if edit.get(flag):
+                wv[flag] = True
     return wraps
+
+
+def arrow_spot(rows, ppm, H, want, size):
+    """The spot nearest to `want` on the shared edge where the whole arrow is on the map (arrowSpot in raster.js)."""
+    room = ARROW_ROOM * size
+    spots = [(r + 0.5) / ppm for r in rows]
+    inside = [v for v in spots if room <= v <= H / ppm - room]
+    return round(min(inside or spots, key=lambda v: abs(v - want)), 2)
+
+
+def arrows_svg(wraps, W, font, colour, size=1.0):
+    """The edge arrows as compose_board.py draws them, but in any size and colour."""
+    out = []
+    n = lambda v: f"{round(v * size, 3):g}"
+    for wv in wraps:
+        y = wv["y_mm"]
+        for x, s_, target in ((0.0, -1, wv["right"]), (W, 1, wv["left"])):
+            base = x - s_ * 3.2 * size
+            out.append(f'<path d="M{base:.2f},{y - 2.2 * size:.2f} L{x:.2f},{y:.2f} L{base:.2f},{y + 2.2 * size:.2f} Z" '
+                       f'fill="{esc(colour)}" fill-opacity="0.9" stroke="#0b1d2b" stroke-width="{n(0.3)}"/>')
+            at = f'<text x="{base - s_ * 0.8 * size:.2f}" y="{y + 1.25 * size:.2f}"'
+            look = (f'font-family="{esc(font)}" font-size="{n(3.6)}" font-weight="bold" '
+                    f'text-anchor="{"start" if s_ < 0 else "end"}"')
+            out.append(f'{at} {look} fill="none" stroke="#0b1d2b" stroke-opacity="1.0" '
+                       f'stroke-width="{0.8 * size:.2f}" stroke-linejoin="round">{target}</text>')
+            out.append(f'{at} {look} fill="{esc(colour)}">{target}</text>')
+    return out
 
 
 def analyse(lab, ppm, design, cfg):
@@ -713,7 +752,11 @@ def analyse(lab, ppm, design, cfg):
         for x, y in zip(a[m].tolist(), b[m].tolist()):
             adj.add((min(x, y), max(x, y)))
     edges = {k: "sea" for k in adj}
-    wraps = edge_arrows(lab, ppm, design["tiles"], float(cfg["tiles"].get("min_wrap_edge_mm", 4)))
+    look = {**LOOK_DEFAULT, **(design.get("look") or LOOK_BEFORE)}
+    found = edge_arrows(lab, ppm, design["tiles"], float(cfg["tiles"].get("min_wrap_edge_mm", 4)),
+                        design.get("arrows"), float(look["arrow_size"]))
+    # a closed crossing does not connect; a hidden arrow only is not drawn
+    wraps = [wv for wv in found if not wv.get("closed")]
     for wv in wraps:
         edges.setdefault((min(wv["left"], wv["right"]), max(wv["left"], wv["right"])), "wrap")
     passages = []
@@ -826,7 +869,7 @@ def resolve_field(f, text):
     return f
 
 
-def legend_svg(f, font, ink, text):
+def legend_svg(f, font, ink, text, arrow_colour=None):
     colour = esc(f.get("text_color") or ink)
     k = min(float(f["w"]) / 62, float(f["h"]) / 18)
     op = float(f["opacity"] if f.get("opacity") is not None else 1)
@@ -838,7 +881,8 @@ def legend_svg(f, font, ink, text):
             g.append(f'<line x1="-30" y1="{y}" x2="-20" y2="{y}" stroke="{colour}" stroke-width="0.9" '
                      f'stroke-dasharray="{dash}"/>')
         else:
-            g.append(f'<path d="M-30,{y - 2} L-26.8,{y} L-30,{y + 2} Z" fill="{colour}"/>')
+            g.append(f'<path d="M-30,{y - 2} L-26.8,{y} L-30,{y + 2} Z" '
+                     f'fill="{esc(arrow_colour) if arrow_colour else colour}"/>')
         g.append(f'<text x="-17" y="{y + 1.3}" font-family="{esc(font)}" font-size="3.6" fill="{colour}">'
                  f'{esc(text["legend"][i])}</text>')
     g.append("</g>")
@@ -968,9 +1012,12 @@ def job_export(name, png):
         (exp / "config.yaml").write_text(yaml.safe_dump(ecfg, sort_keys=False, allow_unicode=True, width=120))
         # compose_board.py gets only what is to be drawn: hidden layers are empty, and the panel has no height
         # (day track and legend are fields). The complete data goes into the files afterwards.
+        arrows = [wv for wv in tj["wraps"] if not wv.get("hidden")] if look["wraps"] else []
+        arrow_size, arrow_colour = float(look["arrow_size"]), look["arrow_color"] or c["border_color"]
+        own_arrows = arrow_size != 1 or arrow_colour != c["border_color"]       # compose has no style for them
         shown = {**tj, "board": {**tj["board"], "panel_height_mm": 0},
                  "passages": tj["passages"] if look["passages"] else [],
-                 "wraps": tj["wraps"] if look["wraps"] else []}
+                 "wraps": [] if own_arrows else arrows}
         (exp / "tiles/tiles.json").write_text(json.dumps(shown))
         (exp / "tiles/borders.json").write_text(json.dumps(borders if look["borders"] else []))
         try:
@@ -1001,6 +1048,12 @@ def job_export(name, png):
                     under.append(f'<circle cx="{t["pawn_mm"][0]}" cy="{t["pawn_mm"][1]}" r="{radius}" fill="none" '
                                  f'stroke="{esc(ink)}" stroke-opacity="0.6" stroke-width="0.35" '
                                  f'stroke-dasharray="1,0.8"/>')
+        if own_arrows and arrows:
+            # same layer as in compose: above the passages, below all text (numbers and names)
+            layers = rest.split("\n")
+            at = next((i for i, el in enumerate(layers) if el.startswith("<text")), layers.index("</svg>"))
+            layers[at:at] = arrows_svg(arrows, b["inner_width_mm"], c["font"], arrow_colour, arrow_size)
+            rest = "\n".join(layers)
         if under:
             background, map_layer, above = rest.split("\n", 2)
             if not map_layer.startswith(("<image", "<rect")):
@@ -1016,7 +1069,7 @@ def job_export(name, png):
             parts.append(f'<line x1="{fr["left"]}" y1="{y:.2f}" x2="{fr["left"] + iw}" y2="{y:.2f}" '
                          f'stroke="{esc(ink)}" stroke-width="0.6"/>')
         for f in fields:
-            parts.append(legend_svg(f, c["font"], ink, text) if f.get("shape") == "legend"
+            parts.append(legend_svg(f, c["font"], ink, text, look["arrow_color"]) if f.get("shape") == "legend"
                          else field_svg(f, c["font"], ink))
         parts.append("</svg>")
         svg = "\n".join(parts)

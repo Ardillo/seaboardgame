@@ -1,6 +1,6 @@
 // Sea Board Designer: UI wiring (menubar, config menus, tools, sidebar, jobs, save/load).
 import { Design, round2, passagePoints } from "./design.js";
-import { View, fieldHit, fieldLabels, boardText } from "./render.js";
+import { View, fieldHit, fieldLabels, boardText, arrowPart } from "./render.js";
 
 // ================================================================ small helpers
 const $ = (s, el = document) => el.querySelector(s);
@@ -47,7 +47,7 @@ function store(key, val) {
 const app = {
   cfg: null, mainCfg: null, comments: {}, design: null, view: null,
   tool: "select",
-  sel: { tiles: new Set(), field: null, passage: null, sea: null },
+  sel: { tiles: new Set(), field: null, passage: null, sea: null, arrow: null },
   // editing aids, screen only (what the board shows is in design.look and compose.*)
   vo: Object.assign({ problems: true, unassigned: false }, store("aids") || {}),
   beforeLook: store("vo") || {},    // View settings from before they moved into the design
@@ -133,7 +133,7 @@ async function boot() {
     app.cfg = st.config; app.mainCfg = st.main_config; app.comments = st.comments; app.paths = st.paths; app.text = st.board_text;
     app.lookDefault = st.look_default; app.lookBefore = st.look_before;
     app.mainBoard = st.main_board;
-    if (!app.text || !app.lookDefault) {        // the page is new but the Python server still runs the old code
+    if (!app.text || app.lookDefault?.arrow_size === undefined) {        // the page is new but the Python server still runs the old code
       toast("The tool was updated: restart the server (run.sh), then reload this page.", true);
       return;
     }
@@ -164,7 +164,7 @@ async function openDesign(name) {
   meta.look = meta.look ? { ...app.lookDefault, ...meta.look } : lookFromBefore();
   const d = new Design(meta, new Int16Array(labels), new Uint8Array(water));
   app.design = d;
-  app.sel = { tiles: new Set(), field: null, passage: null, sea: null };
+  app.sel = { tiles: new Set(), field: null, passage: null, sea: null, arrow: null };
   d.setNoise(app.cfg.tiles);
   d.dirty = false;
   d.on(onDesignChange);
@@ -267,6 +267,7 @@ function downloadJSON() {
   out.fields.forEach((f) => {
     if (f.day != null) { const n = fieldLabels(f, boardText(app)); f.label = n.label; f.sublabel = n.sub; }
   });
+  out.crossings = a.wraps.map(({ left, right, y_mm, hidden, closed }) => ({ left, right, y_mm, hidden, closed }));
   out.tiles.forEach((t) => {
     t.area_mm2 = round2(a.area[t.id] / d.ppm / d.ppm);
     t.inscribed_diameter_mm = round2((a.inscribedPx[t.id] * 2) / d.ppm);
@@ -296,6 +297,7 @@ function runAnalysis() {
   const d = app.design;
   if (!d) return;
   d.ensureAnalysis(app.cfg);
+  if (app.sel.arrow && !findArrow(app.sel.arrow)) app.sel.arrow = null;     // that crossing is gone
   app.view.rebuildOverlay(null);
   refreshSidebar();
 }
@@ -308,14 +310,15 @@ function pruneSelection() {
 }
 
 function select(kind, value, add) {
-  if (kind !== "tiles" || !add) app.sel = { tiles: new Set(), field: null, passage: null, sea: null };
+  if (kind !== "tiles" || !add) app.sel = { tiles: new Set(), field: null, passage: null, sea: null, arrow: null };
   if (kind === "tiles") {
     for (const id of [].concat(value)) {
       if (add && app.sel.tiles.has(id)) app.sel.tiles.delete(id); else app.sel.tiles.add(id);
     }
   } else if (kind) app.sel[kind] = value;
   app.view.rebuildOverlay(null);
-  if (app.tab !== "log") setTab(kind === "sea" ? "seas" : "inspect", true);
+  // stay on the log only while a job is running
+  if (app.tab !== "log" || app.job?.status !== "running") setTab(kind === "sea" ? "seas" : "inspect", true);
   refreshSidebar();
 }
 
@@ -522,6 +525,9 @@ function buildMenus() {
       ...[["sea", "By sea"], ["tile", "Every tile different"], ["none", "None (art only)"]].map(([v, l]) =>
         item(l, () => setLook("fill", v), { checked: app.design?.meta.look.fill === v, keep: true, disabled: noDesign() })),
       app.design ? h("div", { class: "mitem", style: "cursor:default" }, h("span", { class: "check" }), "Opacity", opacitySlider()) : null,
+      div(), head("Arrows (also in export)"),
+      app.design ? h("div", { class: "mitem", style: "cursor:default" }, h("span", { class: "check" }), "Size", arrowSizeSlider("margin-left:auto")) : null,
+      app.design ? h("div", { class: "mitem", style: "cursor:default" }, h("span", { class: "check" }), "Colour", arrowColourControl("margin-left:auto")) : null,
       div(), head("Editing aids (screen only)"),
       aid("problems", "Highlight problems"), aid("unassigned", "Show water without a tile"),
     ].filter(Boolean)),
@@ -558,6 +564,32 @@ function opacitySlider() {
       app.view.rebuildOverlay(null);
     },
     onchange: (e) => { d?.commit(); d = null; e.target.blur(); } });
+}
+
+// ---------------------------------------------------------------- arrows
+function findArrow(key) { return app.design?.analysis?.wraps.find((w) => w.key === key); }
+
+// one undo step per drag of the slider
+function arrowSizeSlider(style) {
+  let d = null;
+  return h("input", { type: "range", min: 0.5, max: 1.8, step: 0.05, value: app.design.meta.look.arrow_size, style, title: "arrow size (1 = standard)",
+    oninput: (e) => {
+      if (!d) { d = app.design; d.begin("arrow size", false); }
+      d.meta.look = { ...d.meta.look, arrow_size: +e.target.value };
+      d.analysisVersion = -1;
+      d.ensureAnalysis(app.cfg);
+      app.view.requestDraw();
+    },
+    onchange: (e) => { d?.commit(); d = null; e.target.blur(); } });
+}
+
+function arrowColourControl(style) {
+  const now = app.design.meta.look.arrow_color;
+  const input = h("input", { type: "color", value: now || app.cfg.compose.border_color, title: "arrow colour",
+    onchange: (e) => { e.target.blur(); setLook("arrow_color", e.target.value); openMenu?.rebuild(); scheduleSidebar(); } });
+  const same = h("button", { disabled: !now, title: "follow compose.border_color",
+    onclick: () => { setLook("arrow_color", null); openMenu?.rebuild(); scheduleSidebar(); } }, "as borders");
+  return h("span", { class: "row", style }, input, same);
 }
 
 // ================================================================ config panels
@@ -885,11 +917,23 @@ function hitTest(p) {
     if (pa !== sel && pa.source === "config") continue;
     for (const end of ["a_mm", "b_mm"]) if (near(pa[end], pa === sel ? 1.6 : 2)) return { type: "passageEnd", p: pa, end };
   }
+  // an arrow's point goes before numbers and names, the number beside it after the pawn spots
+  let arrow = null;
+  const slack = Math.min(1.5, 3 / app.view.scale);
+  for (const w of d.analysis?.wraps || []) {
+    if (app.sel.arrow !== w.key && (!look.wraps || w.hidden || w.closed)) continue;
+    const part = arrowPart(w, p.mx, p.my, d.board.inner_width_mm, look.arrow_size, slack);
+    if (!part) continue;
+    const off = Math.abs(w.y_mm - p.my);
+    if (!arrow || (part === "point" && arrow.part !== "point") || (part === arrow.part && off < arrow.off)) arrow = { type: "arrow", w, part, off };
+  }
+  if (arrow?.part === "point") return arrow;
   if (c.show_sea_names) for (const lb of app.view.labelBoxes) if (p.mx >= lb.x && p.mx <= lb.x + lb.w && p.my >= lb.y && p.my <= lb.y + lb.h) return { type: "label", sea: lb.sea };
   if (c.show_tile_numbers || look.circles) {
     const r = Math.min(5, (app.cfg.tiles.pawn_diameter_mm || 12) / 2);
     for (const t of d.meta.tiles) if (t.pawn_mm && near(t.pawn_mm, r * 0.6)) return { type: "pawn", t };
   }
+  if (arrow) return arrow;
   for (const pa of routes) {
     const pts = passagePoints(pa);
     for (let i = 0; i < pts.length - 1; i++) if (segDist(p.mx, p.my, pts[i], pts[i + 1]) < 1.2) return { type: "passage", p: pa, segment: i };
@@ -937,6 +981,10 @@ function onDown(e) {
         select("field", hit.f.id);
         d.begin("move field", false);
         app.drag = { type: "field", id: hit.f.id, ox: hit.f.x - p.bx, oy: hit.f.y - p.by, moved: false };
+      } else if (hit.type === "arrow") {
+        select("arrow", hit.w.key);
+        d.begin("move arrow", false);
+        app.drag = { type: "arrow", key: hit.w.key, oy: hit.w.y_mm - p.my, start: [p.sx, p.sy], moved: false };
       } else if (hit.type === "label") {
         select("sea", hit.sea);
         d.begin("move sea name", false);
@@ -1071,6 +1119,15 @@ function onMove(e) {
       break;
     }
     case "passageEnd": g.p[g.end] = [round2(p.mx), round2(p.my)]; g.moved = true; app.view.requestDraw(); break;
+    case "arrow": {
+      if (!g.moved && Math.hypot(p.sx - g.start[0], p.sy - g.start[1]) < 3) break;
+      const w = findArrow(g.key);
+      if (!w) break;
+      w.y_mm = d.arrowSpotFor(w, p.my + g.oy);
+      d.meta.arrows = { ...d.meta.arrows, [g.key]: { ...d.meta.arrows[g.key], y_mm: w.y_mm } };
+      g.moved = true; app.view.requestDraw();
+      break;
+    }
     case "bend":
       if (Math.hypot(p.sx - g.start[0], p.sy - g.start[1]) < 3) break;
       (g.p.via_mm ||= []).splice(g.i, 0, [round2(p.mx), round2(p.my)]);
@@ -1098,7 +1155,7 @@ function onUp(e) {
   if (!g || !d) return;
   const p = pointerInfo(e);
   switch (g.type) {
-    case "field": case "label": case "pawn": case "passageEnd": case "waypoint": case "bend":
+    case "field": case "label": case "pawn": case "passageEnd": case "waypoint": case "bend": case "arrow":
       if (g.moved) { d.commit(); if (g.type !== "field" && g.type !== "label") d.ensureAnalysis(app.cfg); refreshSidebar(); }
       else d.cancel();
       app.view.requestDraw();
@@ -1175,6 +1232,11 @@ async function deleteSelection() {
     const id = app.sel.field;
     d.edit("delete field", (m) => { m.fields = m.fields.filter((f) => f.id !== id); });
     select(null);
+  } else if (app.sel.arrow) {
+    d.editArrow("hide arrow", app.sel.arrow, { hidden: true });
+    d.ensureAnalysis(app.cfg);
+    refreshSidebar();
+    toast("Arrow hidden. The crossing still connects; 'Close crossing' in Inspect ends that.");
   } else if (app.sel.passage) {
     const p = app.sel.passage;
     d.edit("delete link", (m) => { m.passages = m.passages.filter((x) => x !== p); });
@@ -1185,6 +1247,20 @@ async function deleteSelection() {
     d.deleteTiles(ids);
     select(null);
   }
+}
+
+// to the next spot at least `mm` away in that direction, else as far as the edge goes
+function nudgeArrow(dir, mm) {
+  const d = app.design, w = findArrow(app.sel.arrow);
+  if (!w) return;
+  const ahead = d.arrowSpotsFor(w).filter((v) => (v - w.y_mm) * dir > 0.001);
+  if (dir < 0) ahead.reverse();
+  if (!ahead.length) { toast("The arrow is at the end of the edge these tiles share"); return; }
+  const y = ahead.find((v) => (v - w.y_mm) * dir >= mm - 0.01) ?? ahead[ahead.length - 1];
+  d.editArrow("move arrow", w.key, { y_mm: y });
+  d.ensureAnalysis(app.cfg);
+  app.view.requestDraw();
+  refreshSidebar();
 }
 
 function bindKeys() {
@@ -1216,6 +1292,11 @@ function bindKeys() {
       app.opts.brushMm = Math.max(0.5, Math.min(25, app.opts.brushMm * (e.key === "]" ? 1.25 : 0.8)));
       app.opts.brushMm = Math.round(app.opts.brushMm * 2) / 2;
       store("opts", app.opts); buildOptBar(); app.view.requestDraw(); return;
+    }
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && app.sel.arrow && app.design) {
+      e.preventDefault();
+      if (!app.drag) nudgeArrow(e.key === "ArrowUp" ? -1 : 1, e.shiftKey ? 5 : 1);
+      return;
     }
     if (e.key.startsWith("Arrow") && app.sel.field && app.design) {
       e.preventDefault();
@@ -1286,6 +1367,7 @@ function renderInspect() {
   const pawn = app.cfg.tiles.pawn_diameter_mm;
   if (app.sel.field) return fieldInspector(d.meta.fields.find((f) => f.id === app.sel.field));
   if (app.sel.passage) return passageInspector(app.sel.passage);
+  if (app.sel.arrow) return arrowInspector(app.sel.arrow);
   const ids = [...app.sel.tiles];
   if (ids.length > 1) {
     const total = ids.reduce((s, id) => s + (a ? a.area[id] : 0), 0) / d.ppm / d.ppm;
@@ -1430,6 +1512,54 @@ function passageInspector(p) {
       Object.assign(p, { a_mm, b_mm, via_mm });
     }) }, "Use main project's route") : null,
     h("button", { class: "danger", onclick: deleteSelection }, "Delete"))];
+}
+
+function arrowInspector(key) {
+  const d = app.design, look = d.meta.look;
+  d.ensureAnalysis(app.cfg);
+  const w = findArrow(key);
+  if (!w) return h("p", { class: "muted" }, "These tiles no longer share an edge across the map's sides.");
+  const a = d.analysis;
+  const change = (label, what) => {
+    d.editArrow(label, key, what);
+    d.ensureAnalysis(app.cfg);
+    app.view.requestDraw();
+    refreshSidebar();
+  };
+  const linked = a.graph.get(w.left)?.get(w.right);
+  const spots = d.arrowSpotsFor(w);
+  return [h("div", { class: "sec" }, h("h3", {}, "Crossing (around the world)"),
+    h("div", { class: "kv" },
+      h("span", {}, "Tiles"), h("span", {}, tileChip(w.left), " ↔ ", tileChip(w.right)),
+      h("span", {}, "Arrow at"), h("span", {}, `${fmt(w.y_mm, 2)} mm (can be ${fmt(spots[0])} to ${fmt(spots[spots.length - 1])})`),
+      h("span", {}, "Arrow"), h("span", {}, w.closed ? "none: crossing closed" : w.hidden ? "hidden" : look.wraps ? "shown" : "off: View › Wrap-around arrows"),
+      h("span", {}, "Connects"), h("span", { class: w.closed ? "warn" : "good" },
+        !w.closed ? "yes" : linked ? `crossing closed, still linked by ${linked}` : "no: closed")),
+    h("p", { class: "muted" }, "Drag the arrow along the yellow edge, or use the up and down keys (Shift: 5 mm). Both sides move together."),
+    a.unreachable.length ? h("p", { class: "warn" }, `${a.unreachable.length} tile(s) cannot be reached from the rest (see Report).`) : null),
+  h("div", { class: "sec" }, h("h3", {}, "This crossing"),
+    h("div", { class: "row" },
+      w.closed ? null : h("button", { onclick: () => change(w.hidden ? "show arrow" : "hide arrow", { hidden: !w.hidden }) }, w.hidden ? "Show arrow" : "Hide arrow only"),
+      h("button", { class: w.closed ? "" : "danger", onclick: () => change(w.closed ? "open crossing" : "close crossing", { closed: !w.closed }) }, w.closed ? "Open crossing" : "Close crossing"),
+      h("button", { disabled: !w.edited, onclick: () => change("arrow back to automatic", { y_mm: undefined, hidden: false, closed: false }) }, "Back to automatic")),
+    h("p", { class: "muted" }, "Hide: players don't see the arrow, the tiles still connect. Close: no arrow and no connection.")),
+  h("div", { class: "sec" }, h("h3", {}, "All arrows"),
+    h("div", { class: "formgrid" }, h("label", {}, "Size"), arrowSizeSlider(), h("label", {}, "Colour"), arrowColourControl()))];
+}
+
+function crossingsList(a) {
+  const d = app.design;
+  const state = (w) => (w.closed ? "closed" : w.hidden ? "arrow hidden" : w.edited ? "moved" : "automatic");
+  return h("div", { class: "sec" }, h("h3", {}, `Crossings around the world (${a.wraps.length})`),
+    h("div", { class: "list" }, [...a.wraps].sort((x, y) => x.y_mm - y.y_mm).map((w) =>
+      h("div", { class: "li crossing", onclick: () => select("arrow", w.key) },
+        h("span", { class: "grow" }, `${w.left} ↔ ${w.right}`),
+        h("span", { class: w.closed ? "warn" : "muted" }, state(w))))),
+    Object.keys(d.meta.arrows).length ? h("button", { style: "margin-top:6px", onclick: () => {
+      d.edit("reset all arrows", (m) => { m.arrows = {}; });
+      d.ensureAnalysis(app.cfg);
+      refreshSidebar();
+    } }, "All back to automatic") : null);
 }
 
 function renderSeas() {
@@ -1627,6 +1757,7 @@ function renderReport() {
     issue("Not reachable from the rest", (a.unreachable || []).map((id) => ({ id }))),
     issue("Much smaller than average (< 40 %)", small, (t) => fmt(a.area[t.id] / d.ppm / d.ppm, 0) + " mm²"),
     issue("Much bigger than average (> 180 %)", big, (t) => fmt(a.area[t.id] / d.ppm / d.ppm, 0) + " mm²"),
+    crossingsList(a),
     h("div", { class: "sec" }, h("h3", {}, "Passages"),
       h("div", { class: "list" }, (a.passageInfo || []).map((pi) => h("div", { class: "li", onclick: () => select("passage", pi.p) },
         h("span", { class: "grow" }, pi.p.name, h("span", { class: "muted" }, ` · ${pi.p.kind}${pi.p.source !== "config" ? " · drawn" : ""}`)),
@@ -1656,6 +1787,7 @@ function helpDialog() {
     ["Shift + click", "add a tile to the selection"], ["Ctrl+G / Enter", "merge the selected tiles"], ["Del", "delete the selection"],
     ["Ctrl+Z / Ctrl+Y", "undo / redo"], ["Ctrl+S", "save"], ["Ctrl+E", "export"], ["[  ]", "brush size"], ["Alt + click", "brush: pick the tile to paint · on a passage point: remove it"],
     ["Drag a passage", "click it first, then drag the line to bend it"],
+    ["Drag an edge arrow", "move it along the edge its tiles share; up/down keys too, Del hides it"],
     ["Arrows", "nudge the selected field (Shift: 5 mm)"], ["Ctrl+D", "duplicate the selected field"], ["Esc", "clear selection, cancel a link"]];
   dialog("Keyboard and mouse", h("div", { class: "keys" }, rows.flatMap(([k, v]) => [h("span", {}, h("kbd", {}, k)), h("span", {}, v)])));
 }

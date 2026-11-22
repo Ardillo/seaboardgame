@@ -4,7 +4,7 @@
 import * as R from "./raster.js";
 import { makeProjection } from "./projection.js";
 
-const META_KEYS = ["tiles", "seas", "passages", "fields", "look"];
+const META_KEYS = ["tiles", "seas", "passages", "fields", "look", "arrows"];
 
 export class Design {
   constructor(meta, labels, water) {
@@ -29,6 +29,7 @@ export class Design {
     this.noiseCfg = null;
     meta.fields = meta.fields || [];
     meta.passages = meta.passages || [];
+    meta.arrows = meta.arrows || {};        // "left-right" tile ids -> {y_mm, hidden, closed}
     this.reindex();
   }
 
@@ -93,6 +94,7 @@ export class Design {
         }
       }
     }
+    if (tx.lab) this.pruneArrows();
     const metaAfter = this.snapshotMeta();
     if (!idx && metaAfter === tx.meta) return;
     this.undoStack.push({ label: tx.label, idx, before, after, metaBefore: tx.meta, metaAfter, affected: [...affected] });
@@ -176,7 +178,7 @@ export class Design {
       }
     }
     a.wraps = R.wraps(this.lab, this.W, this.H, this.ppm, this.meta.tiles.filter((t) => t.pawn_mm).map((t) => t.pawn_mm),
-      cfg?.tiles?.min_wrap_edge_mm ?? 4);
+      cfg?.tiles?.min_wrap_edge_mm ?? 4, this.meta.arrows, this.meta.look?.arrow_size ?? 1);
     a.graph = this.buildGraph(a);
     const seas = this.meta.tiles.map((t) => `${t.id}:${this.seaIndex(t.sea)}`).join();
     const key = `${this.labVersion}|${seas}`;
@@ -184,6 +186,26 @@ export class Design {
     if (moved) this.emit("pawns");
     return a;
   }
+
+  // arrow edits of tiles that are gone (their number may be given to a new tile)
+  pruneArrows() {
+    for (const key of Object.keys(this.meta.arrows)) {
+      if (!key.split("-").every((id) => this.tile(+id))) delete this.meta.arrows[key];
+    }
+  }
+
+  editArrow(label, key, change) {
+    this.edit(label, (m) => {
+      const next = { ...m.arrows[key], ...change };
+      for (const k of Object.keys(next)) if (next[k] === false || next[k] === undefined) delete next[k];
+      const all = { ...m.arrows };
+      if (Object.keys(next).length) all[key] = next; else delete all[key];
+      m.arrows = all;
+    });
+  }
+
+  arrowSpotFor(wrap, want) { return R.arrowSpot(wrap.rows, this.ppm, this.H, want, this.meta.look.arrow_size); }
+  arrowSpotsFor(wrap) { return R.arrowSpots(wrap.rows, this.ppm, this.H, this.meta.look.arrow_size).map(R.pyRound2); }
 
   traceBorders() {
     const seaOf = new Int16Array(this.maxId() + 1).fill(-1);
@@ -229,7 +251,7 @@ export class Design {
       if (!nb.get(y).has(x)) nb.get(y).set(x, kind);
     };
     for (const key of a.pairs.keys()) add(Math.floor(key / 65536), key % 65536, "sea");
-    for (const w of a.wraps) add(w.left, w.right, "wrap");
+    for (const w of a.wraps) if (!w.closed) add(w.left, w.right, "wrap");
     a.passageInfo = this.resolvePassages(a);
     for (const pi of a.passageInfo) if (pi.status === "ok") add(pi.ta, pi.tb, pi.p.kind);
     // reachability from the lowest tile id
@@ -419,6 +441,12 @@ export class Design {
     for (let i = 0; i < this.lab.length; i++) if (this.lab[i] > 0) this.lab[i] = map[this.lab[i]];
     const old = new Map(tiles.map((t) => [t.id, map[t.id]]));
     for (const t of tiles) t.id = map[t.id];
+    const arrows = {};
+    for (const [key, edit] of Object.entries(this.meta.arrows)) {
+      const [left, right] = key.split("-").map((id) => map[+id]);
+      if (left && right) arrows[`${left}-${right}`] = edit;
+    }
+    this.meta.arrows = arrows;
     this.meta.tiles = tiles.sort((x, y) => x.id - y.id);
     this.reindex();
     this.commit();
