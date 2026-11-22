@@ -1,11 +1,11 @@
 """Build the sea tiles: sea regions, equal-ish tiles inside them, neighbours, borders.
 
 Output (in <output_dir>/tiles/):
-  tiles.json    tiles, sea regions, neighbours, passages, pawn spots (board mm)
+  tiles.json    tiles (numbered from 1), seas and name positions, neighbours, passages, edge crossings, pawn spots (board mm)
   borders.json  smoothed tile and region border lines (board mm)
-  labels.npy    tile id per raster pixel (-1 = land / not playable)
+  labels.npy    tile id per raster pixel (0 = land / not playable)
   preview.png   quick colour check of the layout
-  report.txt    size statistics and warnings
+  report.txt    seas merged or left out, refine rounds, sizes, passages, warnings
 """
 import colorsys
 import heapq
@@ -258,8 +258,9 @@ def main():
         if cls != "ocean" and cls not in sc["candidate_classes"] and name not in sc["include_names"]:
             continue
         feats[name].extend(rings)
-        meta[name] = {"name": nice_name(name), "name_nl": rec.get("name_nl") or nice_name(name),
-                      "class": cls}
+        shown = nice_name(name)
+        name_nl = (sc.get("names_nl") or {}).get(shown) or rec.get("name_nl") or shown
+        meta[name] = {"name": shown, "name_nl": name_nl, "class": cls}
     for n in feats:
         meta[n]["area_km2"] = round(sphere_area_km2(feats[n]))
     cands = sorted((n for n in feats if meta[n]["class"] != "ocean"), key=lambda n: -meta[n]["area_km2"])
@@ -338,7 +339,7 @@ def main():
                             region[piece] = -1
                             water[piece] = False
                             changed = True
-                        continue        # closed basin (e.g. Black Sea): keeps its own tile
+                        continue        # closed basin: stays a piece of its own (the pawn rule below decides)
                     region[piece] = -2
                     changed = True
         if not changed:
@@ -367,8 +368,8 @@ def main():
                               "fit_px": 2 * pole_of_inaccessibility(m)[2]})
         return units, unit_map
 
-    # --- rule: a sea (piece) where no pawn fits is not drawn; it joins the sea
-    # it touches, or becomes unplayable when it is closed off
+    # --- rule: a sea (piece) where no pawn fits gets no tile of its own. Open sea
+    # joins the seas it touches; an inlet or a closed-off sea becomes unplayable
     dropped = set()
     for _ in range(6):
         units, unit_map = build_units(region)
@@ -538,7 +539,7 @@ def main():
             continue        # too short a shared edge: no crossing here
         edges.setdefault((min(x, y), max(x, y)), "wrap")
         wraps.append({"left": x, "right": y, "rows": rows})
-    # arrow height: the spot along the shared edge furthest from pawn circles and other arrows
+    # arrow height: the spot along the shared edge furthest from pawn spots and other arrows
     spots_mm = np.array([[(pole[t][1] + 0.5) / ppm, (pole[t][0] + 0.5) / ppm] for t in ids])
     near_edge = spots_mm[(spots_mm[:, 0] < 22) | (spots_mm[:, 0] > W / ppm - 22)]
     placed = []
@@ -639,7 +640,7 @@ def main():
             "neighbours": sorted(int(u) for u in nb[t]),
         })
 
-    # --- sea names: free spot inside the own sea, clear of pawn circles, other names and edge arrows
+    # --- sea names: free spot inside the own sea, clear of pawn spots, other names and edge arrows
     regions = place_labels(cfg, present, names, meta, tile_region, lab, reg_of, tiles, wraps, ppm, W, H)
 
     save_json(out / "tiles.json", {
@@ -733,7 +734,7 @@ def place_labels(cfg, present, names, meta, tile_region, lab, reg_of, tiles, wra
         full = (bw * ppm) * (bh * ppm)
         inside = (ii[y1, x1] - ii[y0, x1] - ii[y1, x0] + ii[y0, x0]) / full
         ok = (gx - bw / 2 > 0) & (gx + bw / 2 < W / ppm) & (gy - bh / 2 > 0) & (gy + bh / 2 < H / ppm)
-        # clearance to pawn circles
+        # clearance to pawn spots (a pawn-sized area round each tile number)
         dx = np.maximum(np.abs(circles[:, 0][None] - gx[:, None]) - bw / 2, 0)
         dy = np.maximum(np.abs(circles[:, 1][None] - gy[:, None]) - bh / 2, 0)
         clear = (np.hypot(dx, dy) - pawn_r).min(1)

@@ -1,11 +1,11 @@
-"""Paint the map art with SDXL, guided by a real-colour world map.
+"""Make the map image: the atlas map (used for the board) or, optionally, an SDXL painting of it.
 
 Steps:
-  guide    reproject Natural Earth II (realistic colours + relief) to the board -> art/guide.png
+  guide    reproject Natural Earth II (realistic colours + relief) to the board -> art/guide.png (the atlas map)
   samples  a few 1024 px test crops at different strengths -> art/samples/  (pick a style first)
   full     the whole map, painted in overlapping 1024 px tiles -> art/art.png
 
-The guide keeps continents in the right place; SDXL img2img only repaints the look.
+samples and full are optional. The guide keeps continents in the right place; SDXL img2img only repaints the look.
 """
 from pathlib import Path
 

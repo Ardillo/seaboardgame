@@ -89,9 +89,6 @@ $PY make_art.py guide --set output_dir=$O
 $PY compose_board.py --set output_dir=$O --set compose.language=nl
 ```
 
-Known issue: the Dutch names in Natural Earth do not separate north from south,
-so the board shows "Grote Oceaan" and "Atlantische Oceaan" twice.
-
 `--set` cannot edit one entry of `passages`; edit the file for that. It does not report a misspelled last key.
 `--config FILE` uses another config file.
 
@@ -109,6 +106,7 @@ so the board shows "Grote Oceaan" and "Atlantische Oceaan" twice.
 | `tiles.border_noise`, `tiles.sea_border_wiggle_mm` | how organic tile and sea borders are |
 | `seas.biggest` | number of biggest seas, gulfs and bays that are used next to the oceans |
 | `seas.include_names`, `seas.exclude_names` | seas always or never used; the pawn rule still applies |
+| `seas.names_nl` | Dutch names that replace those of Natural Earth, by English name |
 | `passages` | canals and straits: end points `a`, `b`, optional `via` route, `enabled`. Skipped if an end is not in a tile or both are in the same one |
 | `board.*`, `map.*` | board size, projection, centre longitude, latitude range |
 | `compose.map_art` | `guide` = atlas map (default), `art` = SDXL painting |

@@ -19,14 +19,14 @@ map:
   # the board the scripts stop and tell you to narrow the latitude range.
 
 tiles:
-  count: 80                   # total number of sea tiles
+  count: 80                   # starting number of tiles; the refine rounds add or remove some
   raster_px_per_mm: 4         # working resolution of the tile computation
   lloyd_iterations: 40        # relaxation rounds; more = more even sizes
   border_noise: 0.35          # 0 = straight-ish borders, 0.5 = very wiggly
   noise_scale_mm: 40          # size of the wiggles
   sea_border_wiggle_mm: 10    # how far straight sea/ocean borders are bent (0 = keep Natural Earth lines)
   min_water_component_mm2: 60 # smaller isolated waters (lakes, closed lagoons) are not playable
-  pawn_diameter_mm: 12        # seas where a pawn this size does not fit are not drawn
+  pawn_diameter_mm: 12        # a sea where a pawn this size does not fit gets no tile of its own
   open_sea_contact: 1.5       # such a sea joins its neighbours if its shared edge / sqrt(area) >= this, else left out
   max_width_factor: 1.6       # a tile may be at most this x as wide as an average tile (sqrt of mean area)
   min_wrap_edge_mm: 4         # tiles must share at least this much edge across the seam to connect
@@ -34,19 +34,27 @@ tiles:
   random_seed: 7
 
 seas:
-  # Which Natural Earth marine areas become their own sea region (>= 1 tile each).
+  # Which Natural Earth marine areas become their own sea region (>= 1 tile each,
+  # if a pawn fits: see tiles.pawn_diameter_mm).
   # The 7 oceans are always regions. From the candidates below, the `biggest`
   # ones by real-world area (km2) become their own sea; the rest merge into
   # the sea or ocean around them.
   biggest: 25
   candidate_classes: [sea, gulf, bay]
-  include_names: ["North Sea", "Baltic Sea", "Black Sea", "Red Sea", "Persian Gulf"]   # always included as well
+  include_names: ["North Sea", "Baltic Sea", "Black Sea", "Red Sea", "Persian Gulf"]   # candidates as well; the pawn rule still applies
   exclude_names: ["Caspian Sea", "Inner Seas", "Inner Sea"]   # the Caspian is a lake
+  # Dutch names that replace those of Natural Earth, which drop north and south
+  names_nl:
+    North Atlantic Ocean: "Noord-Atlantische Oceaan"
+    South Atlantic Ocean: "Zuid-Atlantische Oceaan"
+    North Pacific Ocean: "Noordelijke Grote Oceaan"
+    South Pacific Ocean: "Zuidelijke Grote Oceaan"
 
 passages:
-  # Explicit connections between tiles. Straits are only drawn when the raster
-  # does not already connect the waters. Canals are always drawn.
-  # Points are [lon, lat] in open water on either side.
+  # Explicit connections between tiles. A passage is skipped when an end is not in
+  # a tile or both ends are in the same one. Of the others, canals are always drawn,
+  # straits only when the tiles do not already touch.
+  # a and b are [lon, lat] in open water on either side; via = waypoints of the drawn route.
   - {name: Suez Canal,       kind: canal,  enabled: false, a: [32.35, 31.55], b: [34.00, 27.30]}   # only useful when the Red Sea is drawn
   - {name: Suez Canal + Red Sea, kind: canal, enabled: true, a: [32.35, 31.55], b: [45.00, 12.30],   # Mediterranean to Arabian Sea (Gulf of Aden) in one step
      via: [[32.33, 30.60], [32.56, 29.92], [32.90, 29.30], [33.60, 27.90], [34.80, 26.20], [36.40, 23.60],
@@ -63,7 +71,7 @@ passages:
   - {name: Strait of Hormuz, kind: strait, enabled: true,  a: [55.6, 26.5],  b: [57.2, 25.6]}
 
 art:
-  dpi: 150                    # SDXL art resolution; upscaled to print dpi in compose
+  dpi: 150                    # resolution of the map image (atlas and SDXL); upscaled to print dpi in compose
   model: stabilityai/stable-diffusion-xl-base-1.0
   strength: 0.40              # 0.2 = close to the real map, 0.6 = much more painterly (and less accurate)
   steps: 30
@@ -82,19 +90,19 @@ art:
 compose:
   map_art: guide              # guide = Natural Earth atlas map (chosen 2026-11-22) | art = SDXL painting (make_art.py full)
   print_dpi: 300
-  language: en                # en | nl  (labels on the board)
+  language: en                # en | nl  (after a change rerun make_tiles: it places the names)
   font: "DejaVu Serif"
   tile_border_mm: 0.5
   region_border_mm: 1.0
   border_color: "#f4ecd8"
   show_tile_numbers: true
   show_sea_names: true
-  ocean_label_mm: 6.0         # letter height of ocean names
-  sea_label_mm: 3.2           # letter height of sea names
+  ocean_label_mm: 6.0         # letter height of ocean names (rerun make_tiles)
+  sea_label_mm: 3.2           # letter height of sea names (rerun make_tiles)
 
 day_track:
   # The time slider: 5 workdays, then the weekend, in the bottom panel.
-  space_mm: 26                # size of one day space
+  space_mm: 26                # size of one day space (shrinks if the panel is lower)
   gap_mm: 4                   # gap between days
   weekend_gap_mm: 12          # extra gap before the weekend
   workday_color: "#2f5d7c"

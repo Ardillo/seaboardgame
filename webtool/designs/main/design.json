@@ -1648,7 +1648,7 @@
   },
   {
    "name": "North Atlantic Ocean",
-   "name_nl": "Atlantische Oceaan",
+   "name_nl": "Noord-Atlantische Oceaan",
    "class": "ocean",
    "color": "#727ac9",
    "label_mm": [
@@ -1660,7 +1660,7 @@
   },
   {
    "name": "North Pacific Ocean",
-   "name_nl": "Grote Oceaan",
+   "name_nl": "Noordelijke Grote Oceaan",
    "class": "ocean",
    "color": "#93c972",
    "label_mm": [
@@ -1756,7 +1756,7 @@
   },
   {
    "name": "South Atlantic Ocean",
-   "name_nl": "Atlantische Oceaan",
+   "name_nl": "Zuid-Atlantische Oceaan",
    "class": "ocean",
    "color": "#b0c972",
    "label_mm": [
@@ -1780,7 +1780,7 @@
   },
   {
    "name": "South Pacific Ocean",
-   "name_nl": "Grote Oceaan",
+   "name_nl": "Zuidelijke Grote Oceaan",
    "class": "ocean",
    "color": "#72c9af",
    "label_mm": [

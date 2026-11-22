@@ -1,6 +1,6 @@
-"""Put the board together: art + tile borders + names + passages + day track.
+"""Put the board together: map image + tile borders, numbers, names + passages + edge arrows + day track.
 
-Output (in <output_dir>/board/): board.svg, board.pdf, board.png (print dpi), board_preview.jpg
+Output (in <output_dir>/board/): board.svg, board.pdf, board_preview.jpg, board.png (print dpi; not with --no-png)
 """
 import base64
 import io
