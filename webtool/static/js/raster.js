@@ -171,7 +171,6 @@ export function analyse(lab, W, H, maxId) {
   const x0 = new Int32Array(M).fill(W), y0 = new Int32Array(M).fill(H);
   const x1 = new Int32Array(M).fill(-1), y1 = new Int32Array(M).fill(-1);
   const N = W * H;
-  const inner = new Uint8Array(N);
   const pairs = new Map();
   const addPair = (a, b) => {
     const key = a < b ? a * 65536 + b : b * 65536 + a;
@@ -187,18 +186,25 @@ export function analyse(lab, W, H, maxId) {
       if (c > x1[t]) x1[t] = c;
       if (r < y0[t]) y0[t] = r;
       if (r > y1[t]) y1[t] = r;
-      if (c > 0 && c < W - 1 && r > 0 && r < H - 1 &&
-          lab[i - 1] === t && lab[i + 1] === t && lab[i - W] === t && lab[i + W] === t) inner[i] = 1;
       if (c < W - 1) { const u = lab[i + 1]; if (u > 0 && u !== t) addPair(t, u); }
       if (r < H - 1) { const u = lab[i + W]; if (u > 0 && u !== t) addPair(t, u); }
     }
   }
-  const dt = edt(inner, W, H);
+  // widest circle per tile: distance to the nearest pixel outside the tile (as in make_tiles.py)
   const best = new Float32Array(M), pole = new Int32Array(M).fill(-1);
-  for (let i = 0; i < N; i++) {
-    const t = lab[i];
-    if (t <= 0) continue;
-    if (pole[t] < 0 || dt[i] > best[t]) { best[t] = dt[i]; pole[t] = i; }
+  for (let t = 1; t < M; t++) {
+    if (!area[t]) continue;
+    const cw = x1[t] - x0[t] + 1, ch = y1[t] - y0[t] + 1;
+    const mask = new Uint8Array(cw * ch);
+    for (let r = 0; r < ch; r++) {
+      const from = (r + y0[t]) * W + x0[t];
+      for (let c = 0; c < cw; c++) if (lab[from + c] === t) mask[r * cw + c] = 1;
+    }
+    const dt = edt(mask, cw, ch);
+    let at = 0;
+    for (let i = 1; i < dt.length; i++) if (dt[i] > dt[at]) at = i;
+    best[t] = dt[at];
+    pole[t] = (y0[t] + Math.floor(at / cw)) * W + x0[t] + (at % cw);
   }
   // fragments: 4-connected pieces per tile (union-find)
   const parent = new Int32Array(N);
@@ -221,8 +227,15 @@ export function analyse(lab, W, H, maxId) {
   return { area, x0, y0, x1, y1, pairs, inscribedPx: best, pole, pieces, maxId };
 }
 
-// East-west wrap connections: tiles meeting at the left and right map edge.
-export function wraps(lab, W, H, minRunPx) {
+// Round like Python (halves to even): pixel centres are exact quarters of a mm.
+export function pyRound2(v) {
+  const x = v * 100, f = Math.floor(x);
+  return (x - f === 0.5 ? (f % 2 ? f + 1 : f) : Math.round(x)) / 100;
+}
+
+// East-west crossings: tiles meeting at the left and right map edge. Each arrow sits where it is
+// clear of pawn spots and other arrows (as in make_tiles.py). spots: pawn spots in map mm.
+export function wraps(lab, W, H, ppm, spots, minEdgeMm) {
   const runs = new Map();
   for (let r = 0; r < H; r++) {
     const a = lab[r * W], b = lab[r * W + W - 1];
@@ -234,9 +247,102 @@ export function wraps(lab, W, H, minRunPx) {
   }
   const out = [];
   for (const [key, rows] of runs) {
-    if (rows.length < minRunPx) continue;
-    out.push({ left: Math.floor(key / 65536), right: key % 65536, row: rows[rows.length >> 1] });
+    if (rows.length >= minEdgeMm * ppm) out.push({ left: Math.floor(key / 65536), right: key % 65536, rows });
   }
+  const obstacles = [];
+  for (const [x, y] of spots) {
+    const cx = (Math.floor(x * ppm) + 0.5) / ppm;
+    if (cx < 22 || cx > W / ppm - 22) obstacles.push((Math.floor(y * ppm) + 0.5) / ppm);
+  }
+  for (const w of [...out].sort((a, b) => a.rows.length - b.rows.length)) {
+    const all = w.rows.map((r) => (r + 0.5) / ppm);
+    const lo = all[0] + 1.5, hi = all[all.length - 1] - 1.5;
+    const inside = all.filter((v) => v > lo && v < hi);
+    let best = 0, bestClear = -1;
+    for (const v of inside.length ? inside : all) {
+      let clear = Infinity;
+      for (const o of obstacles.length ? obstacles : [1e9]) clear = Math.min(clear, Math.abs(v - o));
+      if (clear > bestClear) { bestClear = clear; best = v; }
+    }
+    w.y_mm = pyRound2(best);
+    obstacles.push(w.y_mm);
+    delete w.rows;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- border lines
+function chaikin(pts, closed) {
+  let p = pts;
+  for (let round = 0; round < 3; round++) {
+    const n = p.length / 2;
+    if (n < 3) return p;
+    const segs = closed ? n : n - 1;
+    const out = new Float32Array(segs * 4 + (closed ? 0 : 4));
+    let o = 0;
+    if (!closed) { out[o++] = p[0]; out[o++] = p[1]; }
+    for (let i = 0; i < segs; i++) {
+      const j = (i + 1) % n;
+      const ax = p[2 * i], ay = p[2 * i + 1], bx = p[2 * j], by = p[2 * j + 1];
+      out[o++] = 0.75 * ax + 0.25 * bx; out[o++] = 0.75 * ay + 0.25 * by;
+      out[o++] = 0.25 * ax + 0.75 * bx; out[o++] = 0.25 * ay + 0.75 * by;
+    }
+    if (!closed) { out[o++] = p[2 * n - 2]; out[o++] = p[2 * n - 1]; }
+    p = out;
+  }
+  return p;
+}
+
+// The same lines as borders_of in server.py: between tiles, and where tiles end at water without
+// a tile. "region" = between seas. Returns [{region, path: Path2D}] in map mm.
+export function borders(lab, water, W, H, ppm, seaOf) {
+  const W1 = W + 1, kinds = [[], []];
+  const sea = (t) => (t < seaOf.length ? seaOf[t] : -1);
+  const visit = (i, j, a, b) => {
+    const t = lab[i], u = lab[j];
+    if (t === u) return;
+    if (t > 0 ? (u > 0 || water[j]) : (u > 0 && water[i])) kinds[sea(t) !== sea(u) ? 1 : 0].push(a, b);
+  };
+  for (let r = 0; r < H; r++) {
+    for (let c = 0; c < W - 1; c++) {
+      const i = r * W + c;
+      if (lab[i] !== lab[i + 1]) visit(i, i + 1, r * W1 + c + 1, (r + 1) * W1 + c + 1);
+    }
+  }
+  for (let r = 0; r < H - 1; r++) {
+    for (let c = 0; c < W; c++) {
+      const i = r * W + c;
+      if (lab[i] !== lab[i + W]) visit(i, i + W, (r + 1) * W1 + c, (r + 1) * W1 + c + 1);
+    }
+  }
+  const out = [];
+  kinds.forEach((ends, region) => {
+    const at = new Map();
+    ends.forEach((v, k) => { const list = at.get(v); if (list) list.push(k >> 1); else at.set(v, [k >> 1]); });
+    const used = new Uint8Array(ends.length >> 1);
+    const walk = (start, first) => {
+      const xy = [(start % W1) / ppm, Math.floor(start / W1) / ppm];
+      let v = start, s = first, closed = false;
+      for (;;) {
+        used[s] = 1;
+        v = ends[2 * s] === v ? ends[2 * s + 1] : ends[2 * s];
+        const next = at.get(v);
+        if (next.length === 2 && used[next[0]] && used[next[1]]) { closed = true; break; }
+        xy.push((v % W1) / ppm, Math.floor(v / W1) / ppm);
+        if (next.length !== 2) break;
+        s = used[next[0]] ? next[1] : next[0];
+      }
+      const p = chaikin(xy, closed), n = p.length / 2;
+      const path = new Path2D();
+      path.moveTo(p[0], p[1]);
+      for (let i = 4; i < n - 1; i += 4) path.lineTo(p[2 * i], p[2 * i + 1]);     // fine enough for the screen
+      path.lineTo(p[2 * n - 2], p[2 * n - 1]);
+      if (closed) path.closePath();
+      out.push({ region: region === 1, path });
+    };
+    for (const [v, list] of at) if (list.length !== 2) for (const s of list) if (!used[s]) walk(v, s);
+    for (let s = 0; s < used.length; s++) if (!used[s]) walk(ends[2 * s], s);
+  });
   return out;
 }
 

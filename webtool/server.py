@@ -6,7 +6,7 @@ All paths are relative to this file (the project root is its parent folder):
   ../out    the main project's output (read only, for "Import main board")
   ../.venv  Python used for the pipeline (falls back to the Python running this server)
 This tool never writes into ../src or ../out:
-  state/config.yaml   the tool's own copy of the config (edited from the menubar)
+  state/config.yaml   only the settings changed in the tool; all others follow ../src/config.yaml
   work/runs/<id>/     output of a generator run (its own output_dir)
   designs/<name>/     an editable design: design.json, labels.bin, water.bin, art
   designs/<name>/export/   composed board (svg, pdf, preview) made from the design
@@ -15,7 +15,9 @@ Run:  ../.venv/bin/python server.py [--port 8765] [--host 127.0.0.1]   (or ./run
 Override with BOARD_SRC, BOARD_MAIN_OUT, BOARD_PY if the layout differs.
 """
 import argparse
+import base64
 import colorsys
+import io
 import json
 import mimetypes
 import os
@@ -30,7 +32,7 @@ import traceback
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import numpy as np
 import yaml
@@ -87,7 +89,14 @@ BOARD_TEXT = {
            "day_names": ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"],
            "legend": ["Kanaal", "Zeestraat", "Rond de wereld varen"]},
 }
-DESIGN_VERSION = 2      # 2: day track and legend are fields
+NOT_OVERRIDDEN = ("data_dir", "output_dir", "passages")
+DESIGN_VERSION = 3      # 2: day track and legend are fields; 3: passages belong to the design, with waypoints
+
+# What is drawn on the board, per design (View menu); editor and export both follow it.
+# Map art, tile numbers and sea names are the compose.* settings.
+LOOK_DEFAULT = {"borders": True, "circles": False, "passages": True, "wraps": True, "fields": True,
+                "fill": "none", "fill_opacity": 0.28}
+LOOK_BEFORE = {**LOOK_DEFAULT, "fill": "sea"}       # what the editor showed for designs without a look
 
 
 # ------------------------------------------------------------------ config
@@ -108,40 +117,47 @@ def deep_defaults(cfg, defaults):
     return cfg
 
 
+def merged(base, over):
+    out = json.loads(json.dumps(base))
+    for k, v in over.items():
+        out[k] = merged(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def changed_only(cfg, base):
+    out = {}
+    for k, v in cfg.items():
+        if k not in base:
+            out[k] = v
+        elif isinstance(v, dict) and isinstance(base[k], dict):
+            sub = changed_only(v, base[k])
+            if sub:
+                out[k] = sub
+        elif v != base[k]:
+            out[k] = v
+    return out
+
+
 def my_config():
-    if not MY_CONFIG.exists():
-        STATE.mkdir(parents=True, exist_ok=True)
-        save_my_config(main_config())
-    cfg = load_yaml(MY_CONFIG)
-    # the main project keeps adding settings: take over keys we do not have yet
-    try:
-        main = main_config()
-        fill_missing(cfg, main)
-        for k in ("data_dir", "output_dir"):    # folder paths follow the main config, not the copy
-            if k in main:
-                cfg[k] = rel_src(main[k])
-    except (OSError, yaml.YAMLError):
-        pass
+    """The main config as it is now, with the settings changed in this tool on top."""
+    main = main_config()
+    mine = (load_yaml(MY_CONFIG) or {}) if MY_CONFIG.exists() else {}
+    # folders and passages are never overridden here (passages are edited per design)
+    cfg = merged(main, {k: v for k, v in mine.items() if k not in NOT_OVERRIDDEN})
+    cfg = rel_paths(cfg)
     cfg["webtool"] = deep_defaults(cfg.get("webtool") or {}, WEBTOOL_DEFAULTS)
     return cfg
 
 
-def fill_missing(cfg, main):
-    for k, v in main.items():
-        if k not in cfg:
-            cfg[k] = v
-        elif isinstance(v, dict) and isinstance(cfg[k], dict):
-            fill_missing(cfg[k], v)
-    return cfg
-
-
-def save_my_config(cfg):
+def save_my_config(cfg, based_on=None):
+    """Keep what differs from the main config the edit started from."""
+    base = based_on or main_config()
+    keep = changed_only({k: v for k, v in cfg.items() if k not in NOT_OVERRIDDEN}, base)
+    keep["webtool"] = deep_defaults(keep.get("webtool") or {}, WEBTOOL_DEFAULTS)
     STATE.mkdir(parents=True, exist_ok=True)
-    cfg = dict(cfg)
-    cfg["webtool"] = deep_defaults(cfg.get("webtool") or {}, WEBTOOL_DEFAULTS)
-    head = ("# Design tool copy of ../src/config.yaml (edited from the web menubar).\n"
-            "# The original stays untouched; comments live in the original.\n")
-    MY_CONFIG.write_text(head + yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True, width=120))
+    head = ("# Settings changed in the design tool. All others follow ../src/config.yaml.\n"
+            "# Passages are stored in each design.\n")
+    MY_CONFIG.write_text(head + yaml.safe_dump(keep, sort_keys=False, allow_unicode=True, width=120))
 
 
 def strip_comment(rest):
@@ -235,6 +251,16 @@ def data_path(cfg):
     return p if p.exists() or not local.exists() else local
 
 
+def has_italic(family):
+    """Does the export get an italic face? cairo does not fake one when the font has none; browsers do."""
+    def face(pattern):      # the file, not %{slant}: fontconfig also reports a slant for a faked italic
+        return subprocess.run(["fc-match", "-f", "%{file}", pattern], capture_output=True, text=True).stdout
+    try:
+        return face(f"{family}:italic") != face(family)
+    except OSError:
+        return True
+
+
 def check_data(cfg):
     d = data_path(cfg)
     if not (d / "ne_50m_land").exists():
@@ -320,14 +346,14 @@ def design_dir(name):
     return DESIGNS / name
 
 
-def make_display_art(d):
-    src = d / "art.png"
+def make_display_art(d, stem="art"):
+    src = d / f"{stem}.png"
     if not src.exists():
         return
     im = Image.open(src).convert("RGB")
     if im.width > 4096:
         im = im.resize((4096, round(im.height * 4096 / im.width)), Image.LANCZOS)
-    im.save(d / "art.jpg", quality=88)
+    im.save(d / f"{stem}.jpg", quality=88)
 
 
 def proj_for(board):
@@ -338,15 +364,47 @@ def proj_for(board):
 
 
 def config_passages(cfg, proj):
-    out = []
-    for p in cfg.get("passages") or []:
-        ax, ay = proj.forward(*p["a"])
-        bx, by = proj.forward(*p["b"])
-        out.append({"name": p["name"], "kind": p["kind"], "enabled": bool(p.get("enabled", True)),
-                    "source": "config", "a_lonlat": list(p["a"]), "b_lonlat": list(p["b"]),
-                    "a_mm": [round(float(ax), 2), round(float(ay), 2)],
-                    "b_mm": [round(float(bx), 2), round(float(by), 2)]})
-    return out
+    def mm(lonlat):
+        return [float(v) for v in proj.forward(*lonlat)]
+    return [{"name": p["name"], "kind": p["kind"], "enabled": bool(p.get("enabled", True)), "source": "config",
+             "a_mm": mm(p["a"]), "b_mm": mm(p["b"]), "via_mm": [mm(v) for v in p.get("via", [])]}
+            for p in cfg.get("passages") or []]
+
+
+def board_proj(board):
+    """Projection of a design (its map area, without the frame)."""
+    return proj_for({**board, "width_mm": board["inner_width_mm"], "height_mm": board["inner_height_mm"]})
+
+
+def waypoints_between(route, a, b, near_mm=6.0):
+    """The waypoints of `route` between points a and b, or [] when a or b is not on that route."""
+    pts = np.array(route, float)
+    found = []
+    for q in np.array([a, b], float):
+        best = (np.inf, 0.0)
+        for i, (p0, p1) in enumerate(zip(pts[:-1], pts[1:])):
+            v = p1 - p0
+            t = float(np.clip(np.dot(q - p0, v) / max(float(np.dot(v, v)), 1e-9), 0, 1))
+            best = min(best, (float(np.linalg.norm(q - p0 - t * v)), i + t))
+        if best[0] > near_mm:
+            return []
+        found.append(best[1])
+    ta, tb = found
+    out = [route[i] for i in range(1, len(route) - 1) if min(ta, tb) < i < max(ta, tb)]
+    return out if ta <= tb else out[::-1]
+
+
+def upgrade_passages(design):
+    """Older designs only had straight passages: give them the main project's waypoints, between their own ends."""
+    mains = {p["name"]: p for p in config_passages(main_config(), board_proj(design["board"]))}
+    for p in design.get("passages", []):
+        if "via_mm" in p:
+            continue
+        m = mains.get(p["name"]) if p.get("source") == "config" else None
+        route = [m["a_mm"], *m["via_mm"], m["b_mm"]] if m and m["via_mm"] else None
+        p["via_mm"] = waypoints_between(route, p["a_mm"], p["b_mm"]) if route else []
+        p.pop("a_lonlat", None)
+        p.pop("b_lonlat", None)
 
 
 def build_design(job, name, out_dir, cfg, frame, total_w, total_h, source, run_dir=None):
@@ -373,25 +431,25 @@ def build_design(job, name, out_dir, cfg, frame, total_w, total_h, source, run_d
     d.mkdir(parents=True, exist_ok=True)
     (d / "labels.bin").write_bytes(lab.astype("<i2").tobytes())
     (d / "water.bin").write_bytes(water.astype(np.uint8).tobytes())
-    art = None
-    for cand in ("art.png", "guide.png"):
-        if (out_dir / "art" / cand).exists():
-            art = out_dir / "art" / cand
-            break
-    if art:
-        job.say(f"art: {art}")
-        shutil.copy(art, d / "art.png")
-        make_display_art(d)
+    has = {}
+    for cand, stem in (("guide.png", "art"), ("art.png", "painting")):      # atlas map, SDXL painting
+        src = out_dir / "art" / cand
+        has[stem] = src.exists()
+        if has[stem]:
+            job.say(f"art: {src}")
+            shutil.copy(src, d / f"{stem}.png")
+            make_display_art(d, stem)
 
+    colour = {n: sea_color(i) for i, n in enumerate(sorted(s["name"] for s in tj["seas"]))}
     seas = []
-    for i, s in enumerate(sorted(tj["seas"], key=lambda s: s["name"])):
+    for s in tj["seas"]:        # keep the pipeline's order: it is the drawing order
         seas.append({"name": s["name"], "name_nl": s.get("name_nl") or s["name"], "class": s["class"],
-                     "color": sea_color(i), "label_mm": s.get("label_mm"), "label_size_mm": None,
-                     "show_label": True})
+                     "area_km2": s.get("area_km2"), "color": colour[s["name"]], "label_mm": s.get("label_mm"),
+                     "label_size_mm": None, "show_label": True})
     tiles = [{"id": t["id"], "sea": t["sea"], "pawn_mm": t["pawn_mm"], "pawn_manual": False,
               "pinned": False, "note": ""} for t in tj["tiles"]]
     design = {
-        "version": 1, "name": name, "created": time.strftime("%Y-%m-%d %H:%M:%S"), "source": source,
+        "version": 1, "name": name, "look": dict(LOOK_DEFAULT), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "source": source,
         "run_dir": rel(run_dir) if run_dir else None,
         "board": {"width_mm": total_w, "height_mm": total_h, "frame": frame,
                   "inner_width_mm": b["width_mm"], "inner_height_mm": b["height_mm"],
@@ -401,7 +459,7 @@ def build_design(job, name, out_dir, cfg, frame, total_w, total_h, source, run_d
         "raster": {"W": W, "H": H, "ppm": ppm},
         "config": cfg,
         "tiles": tiles, "seas": seas, "passages": config_passages(cfg, proj), "fields": [],
-        "has_art": art is not None,
+        "has_art": has["art"], "has_painting": has["painting"],
     }
     upgrade_design(design, my_config())
     (d / "design.json").write_text(json.dumps(design, indent=1, ensure_ascii=False))
@@ -435,14 +493,17 @@ def default_board_fields(board, cfg):
 
 
 def upgrade_design(design, cfg):
-    """Older designs had the day track and legend painted on: give them fields instead (in memory only)."""
-    if design.get("version", 1) >= DESIGN_VERSION:
-        return design
-    fields = design.get("fields") or []
-    if design["board"]["panel_height_mm"] > 5:
-        new = default_board_fields(design["board"], cfg)
-        fields = new["days"] + [new["legend"]] + fields     # first = underneath the user's own fields
-    design["fields"], design["version"] = fields, DESIGN_VERSION
+    """Bring an older design up to date (in memory only; it is written when the user saves)."""
+    version = design.get("version", 1)
+    if version < 2:     # day track and legend were painted on: give the design fields instead
+        fields = design.get("fields") or []
+        if design["board"]["panel_height_mm"] > 5:
+            new = default_board_fields(design["board"], cfg)
+            fields = new["days"] + [new["legend"]] + fields     # first = underneath the user's own fields
+        design["fields"] = fields
+    if version < 3:
+        upgrade_passages(design)
+    design["version"] = max(version, DESIGN_VERSION)
     return design
 
 
@@ -502,7 +563,7 @@ def job_generate(name, with_guide):
         if main_art.exists() and same_geometry(rc, main_rc):
             job.say("reusing the main project's painted art (same geometry)")
             shutil.copy(main_art, run_dir / "art/art.png")
-        elif with_guide:
+        if with_guide:
             run_cmd(job, [PY, SRC / "make_art.py", "guide", "--config", cfg_path])
         return build_design(job, name, run_dir, rc, fr, float(cfg["board"]["width_mm"]),
                             float(cfg["board"]["height_mm"]), f"generated (run {run_id})", run_dir)
@@ -558,12 +619,11 @@ def job_art(name, step, strength=None):
         run_cmd(job, [PY, SRC / "make_art.py", step, "--config", cfg_path])
         src = run_dir / "art" / ("art.png" if step == "full" else "guide.png")
         if step in ("guide", "full") and src.exists():
-            shutil.copy(src, d / "art.png")
-            make_display_art(d)
-            design["has_art"] = True
-            design["run_dir"] = rel(run_dir)
+            stem, flag = ("painting", "has_painting") if step == "full" else ("art", "has_art")
+            shutil.copy(src, d / f"{stem}.png")
+            make_display_art(d, stem)
             cur = json.loads((d / "design.json").read_text())
-            cur["has_art"], cur["run_dir"] = True, rel(run_dir)
+            cur[flag], cur["run_dir"] = True, rel(run_dir)
             (d / "design.json").write_text(json.dumps(cur, indent=1, ensure_ascii=False))
         return {"design": name, "step": step,
                 "samples": sorted(p.name for p in (run_dir / "art/samples").glob("*_sheet.jpg"))
@@ -618,34 +678,49 @@ def chain_segments(segs):
     return lines
 
 
+def edge_arrows(lab, ppm, tiles, min_edge_mm):
+    """East-west crossings; each arrow sits where it is clear of pawn spots and other arrows (as in make_tiles.py)."""
+    W = lab.shape[1]
+    a, b = lab[:, 0], lab[:, -1]
+    runs = defaultdict(list)
+    for r in np.flatnonzero((a > 0) & (b > 0)):
+        runs[(int(a[r]), int(b[r]))].append(r)
+    wraps = [{"left": x, "right": y, "rows": rows} for (x, y), rows in runs.items()
+             if x != y and len(rows) >= min_edge_mm * ppm]
+    spots = [((int(t["pawn_mm"][0] * ppm) + 0.5) / ppm, (int(t["pawn_mm"][1] * ppm) + 0.5) / ppm)
+             for t in tiles if t.get("pawn_mm")]
+    near_edge = [y for x, y in spots if x < 22 or x > W / ppm - 22]
+    placed = []
+    for wv in sorted(wraps, key=lambda w: len(w["rows"])):
+        cand = (np.array(wv.pop("rows")) + 0.5) / ppm
+        inside = cand[(cand > cand.min() + 1.5) & (cand < cand.max() - 1.5)]
+        cand = inside if len(inside) else cand
+        obstacles = np.array(near_edge + placed or [1e9])
+        clear = np.abs(cand[:, None] - obstacles[None, :]).min(1)
+        wv["y_mm"] = round(float(cand[int(np.argmax(clear))]), 2)
+        placed.append(wv["y_mm"])
+    return wraps
+
+
 def analyse(lab, ppm, design, cfg):
     """Neighbours, wraps, passages, areas, inscribed circles for an edited label raster."""
     from scipy import ndimage
     H, W = lab.shape
     ids = sorted(int(t["id"]) for t in design["tiles"])
-    adj = defaultdict(int)
+    adj = set()
     for a, b in ((lab[:, :-1], lab[:, 1:]), (lab[:-1, :], lab[1:, :])):
         m = (a > 0) & (b > 0) & (a != b)
         for x, y in zip(a[m].tolist(), b[m].tolist()):
-            adj[(min(x, y), max(x, y))] += 1
+            adj.add((min(x, y), max(x, y)))
     edges = {k: "sea" for k in adj}
-    wraps = []
-    a, b = lab[:, 0], lab[:, -1]
-    runs = defaultdict(list)
-    for r in np.flatnonzero((a > 0) & (b > 0)):
-        runs[(int(a[r]), int(b[r]))].append(r)
-    min_wrap = float(cfg["tiles"].get("min_wrap_edge_mm", 4)) * ppm
-    for (x, y), rows in runs.items():
-        if x == y or len(rows) < min_wrap:
-            continue
-        edges.setdefault((min(x, y), max(x, y)), "wrap")
-        wraps.append({"left": x, "right": y, "y_mm": round((rows[len(rows) // 2] + 0.5) / ppm, 2)})
+    wraps = edge_arrows(lab, ppm, design["tiles"], float(cfg["tiles"].get("min_wrap_edge_mm", 4)))
+    for wv in wraps:
+        edges.setdefault((min(wv["left"], wv["right"]), max(wv["left"], wv["right"])), "wrap")
     passages = []
-    if (lab > 0).any():
+    wanted = [p for p in design.get("passages", []) if p.get("enabled", True)] if (lab > 0).any() else []
+    if wanted:
         nearest = ndimage.distance_transform_edt(lab == 0, return_distances=False, return_indices=True)
-    for p in design.get("passages", []):
-        if not p.get("enabled", True):
-            continue
+    for p in wanted:
         ends = []
         for x, y in (p["a_mm"], p["b_mm"]):
             r, c = min(max(int(y * ppm), 0), H - 1), min(max(int(x * ppm), 0), W - 1)
@@ -658,39 +733,41 @@ def analyse(lab, ppm, design, cfg):
         natural = key in adj
         if not natural:
             edges[key] = p["kind"]
+        path = [p["a_mm"], *p.get("via_mm", []), p["b_mm"]]
         passages.append({"name": p["name"], "kind": p["kind"], "tiles": [ta, tb], "already_connected": natural,
-                         "a_mm": p["a_mm"], "b_mm": p["b_mm"], "drawn": p["kind"] != "strait" or not natural})
+                         "a_mm": p["a_mm"], "b_mm": p["b_mm"],
+                         "path_mm": [[round(float(x), 2), round(float(y), 2)] for x, y in path],
+                         "drawn": p["kind"] != "strait" or not natural})
     nb = defaultdict(set)
     for x, y in edges:
         nb[x].add(y)
         nb[y].add(x)
-    pad = np.pad(lab, 1, constant_values=-1)
-    inner = ((pad[1:-1, 1:-1] == pad[:-2, 1:-1]) & (pad[1:-1, 1:-1] == pad[2:, 1:-1])
-             & (pad[1:-1, 1:-1] == pad[1:-1, :-2]) & (pad[1:-1, 1:-1] == pad[1:-1, 2:]) & (lab > 0))
-    dt = ndimage.distance_transform_edt(inner)
-    area = np.bincount(lab.ravel().clip(0), minlength=max(ids + [0]) + 1)
-    best = ndimage.maximum(dt, lab, index=ids) if ids else []
-    return {"edges": edges, "wraps": wraps, "passages": passages, "nb": nb, "area": area,
-            "inscribed": dict(zip(ids, [float(v) for v in best]))}
+    top = max(ids + [int(lab.max()), 0])
+    # widest circle: distance to the nearest pixel outside the tile (as in make_tiles.py)
+    inscribed = {}
+    for tid, box in enumerate(ndimage.find_objects(lab, max_label=top), 1) if top else ():
+        if box is not None:
+            inscribed[tid] = float(ndimage.distance_transform_edt(np.pad(lab[box] == tid, 1)).max())
+    area = np.bincount(lab.ravel().clip(0), minlength=top + 1)
+    return {"edges": edges, "wraps": wraps, "passages": passages, "nb": nb, "area": area, "inscribed": inscribed}
 
 
-def borders_of(lab, ppm, sea_of):
+def borders_of(lab, ppm, sea_of, water):
+    """Lines between tiles, and where tiles end at water without a tile (as in make_tiles.py)."""
     H, W = lab.shape
     reg = sea_of[lab]
+    left_out = (lab == 0) & water
     segs = {"tile": [], "region": []}
     W1 = W + 1
-    a, b = lab[:, :-1], lab[:, 1:]
-    m = (a > 0) & (b > 0) & (a != b)
-    rr, cc = np.nonzero(m)
-    kind = np.where(reg[:, :-1][m] != reg[:, 1:][m], "region", "tile")
-    for r, c, k in zip(rr.tolist(), cc.tolist(), kind):
-        segs[k].append((r * W1 + c + 1, (r + 1) * W1 + c + 1))
-    a, b = lab[:-1, :], lab[1:, :]
-    m = (a > 0) & (b > 0) & (a != b)
-    rr, cc = np.nonzero(m)
-    kind = np.where(reg[:-1, :][m] != reg[1:, :][m], "region", "tile")
-    for r, c, k in zip(rr.tolist(), cc.tolist(), kind):
-        segs[k].append(((r + 1) * W1 + c, (r + 1) * W1 + c + 1))
+    for across in (True, False):
+        sa, sb = (np.s_[:, :-1], np.s_[:, 1:]) if across else (np.s_[:-1, :], np.s_[1:, :])
+        a, b = lab[sa], lab[sb]
+        m = ((a > 0) & (b > 0) & (a != b)) | ((a > 0) & left_out[sb]) | (left_out[sa] & (b > 0))
+        rr, cc = np.nonzero(m)
+        kind = np.where(reg[sa][m] != reg[sb][m], "region", "tile")
+        for r, c, k in zip(rr.tolist(), cc.tolist(), kind):
+            segs[k].append((r * W1 + c + 1, (r + 1) * W1 + c + 1) if across
+                           else ((r + 1) * W1 + c, (r + 1) * W1 + c + 1))
     out = []
     for k, ss in segs.items():
         for line, closed in chain_segments(ss):
@@ -701,6 +778,38 @@ def borders_of(lab, ppm, sea_of):
             pts = chaikin(pts, 3, closed)
             out.append({"kind": k, "closed": bool(closed), "pts": np.round(pts, 2).tolist()})
     return out
+
+
+def tile_rgb(tile, seas, fill):
+    """The colour the editor gives a tile (colourTables in static/js/render.js)."""
+    tid = int(tile["id"])
+    if fill == "tile":
+        hue, sat, light = (tid * 0.618034) % 1, 0.55, 0.55
+        a = sat * min(light, 1 - light)
+
+        def part(n):
+            k = (n + hue * 12) % 12
+            return int((light - a * max(-1, min(k - 3, 9 - k, 1))) * 255 + 0.5)
+        return [part(0), part(8), part(4)]
+    m = re.match(r"^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})",
+                 (seas.get(tile["sea"]) or {}).get("color") or "#888888")
+    shade = 0.86 + 0.14 * ((tid * 7) % 5) / 4
+    return [int(np.rint(int(v, 16) * shade)) for v in m.groups()] if m else [200, 200, 200]
+
+
+def fill_image(lab, design, look, scale):
+    """Tile colours as a transparent PNG over the map, smoothed like the editor's canvas."""
+    table = np.zeros((int(max([t["id"] for t in design["tiles"]] + [lab.max(), 0])) + 1, 4), np.uint8)
+    seas = {s["name"]: s for s in design["seas"]}
+    alpha = int(255 * float(look["fill_opacity"]) + 0.5)
+    for t in design["tiles"]:
+        table[int(t["id"])] = tile_rgb(t, seas, look["fill"]) + [alpha]
+    im = Image.fromarray(table[lab], "RGBA")
+    if scale > 1:
+        im = im.resize((im.width * scale, im.height * scale), Image.BILINEAR)
+    buf = io.BytesIO()
+    im.save(buf, "PNG", compress_level=4)
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 def esc(s):
@@ -787,7 +896,9 @@ def job_export(name, png):
         cfg = my_config()
         upgrade_design(design, cfg)
         text = BOARD_TEXT.get(cfg["compose"]["language"], BOARD_TEXT["en"])
-        fields = [resolve_field(f, text) for f in design.get("fields", []) if not f.get("hidden")]
+        look = {**LOOK_DEFAULT, **(design.get("look") or LOOK_BEFORE)}
+        fields = [resolve_field(f, text) for f in design.get("fields", [])
+                  if look["fields"] and not f.get("hidden")]
         W, H, ppm = design["raster"]["W"], design["raster"]["H"], design["raster"]["ppm"]
         lab = np.frombuffer((d / "labels.bin").read_bytes(), dtype="<i2").reshape(H, W).astype(np.int32)
         exp = d / "export"
@@ -803,7 +914,8 @@ def job_export(name, png):
         for t in design["tiles"]:
             sea_of[t["id"]] = sea_idx.get(t["sea"], -1)
         job.say("tracing borders")
-        borders = borders_of(lab, ppm, sea_of)
+        water = np.frombuffer((d / "water.bin").read_bytes(), np.uint8).reshape(H, W) > 0
+        borders = borders_of(lab, ppm, sea_of, water)
         c = cfg["compose"]
         tiles = []
         for t in sorted(design["tiles"], key=lambda t: t["id"]):
@@ -821,8 +933,10 @@ def job_export(name, png):
             ocean = s["class"] == "ocean"
             size = s.get("label_size_mm") or (c["ocean_label_mm"] if ocean else c["sea_label_mm"])
             out_seas.append({"name": s["name"], "name_nl": s.get("name_nl") or s["name"], "class": s["class"],
+                             **({"area_km2": s["area_km2"]} if s.get("area_km2") is not None else {}),
                              "tiles": st, "label_mm": s["label_mm"], "label_size_mm": size,
                              "label_spacing_mm": round((0.2 if ocean else 0.05) * size, 2)})
+        out_seas.sort(key=lambda s: -len(s["tiles"]))       # drawing order of the pipeline
         tj = {"board": {"width_mm": b["inner_width_mm"], "height_mm": b["inner_height_mm"],
                         "map_height_mm": b["map_height_mm"], "panel_height_mm": b["panel_height_mm"],
                         "projection": b["projection"], "center_lon": b["center_lon"],
@@ -835,32 +949,63 @@ def job_export(name, png):
               "fields": fields,
               "fields_note": "field x/y are the centre in mm on the whole board (frame included); "
                              "everything else is in mm on the map area"}
-        (exp / "tiles/borders.json").write_text(json.dumps(borders, ensure_ascii=False))
         for f in (exp / "art").glob("*.png"):
             f.unlink()
+        # map_art: guide = atlas map, art = SDXL painting (the atlas map while there is none), none = plain sea
+        wanted = c.get("map_art", "guide")
         art_choice = "none"
-        if (d / "art.png").exists():
-            os.symlink("../../art.png", exp / "art/art.png")    # relative link
+        if wanted == "art" and (d / "painting.png").exists():
+            os.symlink("../../painting.png", exp / "art/art.png")    # relative link
             art_choice = "art"
+        elif wanted != "none" and (d / "art.png").exists():
+            if wanted == "art":
+                job.say("note: this design has no SDXL painting, using the atlas map")
+            os.symlink("../../art.png", exp / "art/guide.png")
+            art_choice = "guide"
         ecfg = json.loads(json.dumps(cfg))
         ecfg["output_dir"] = rel_src(exp)
         ecfg["data_dir"] = rel_src(data_path(ecfg))
         (exp / "config.yaml").write_text(yaml.safe_dump(ecfg, sort_keys=False, allow_unicode=True, width=120))
-        # compose_board.py paints a fixed day track and legend into any panel higher than 5 mm. Here they are
-        # fields, so it is told the panel has no height; the real height goes into the file afterwards.
-        (exp / "tiles/tiles.json").write_text(json.dumps({**tj, "board": {**tj["board"], "panel_height_mm": 0}}))
+        # compose_board.py gets only what is to be drawn: hidden layers are empty, and the panel has no height
+        # (day track and legend are fields). The complete data goes into the files afterwards.
+        shown = {**tj, "board": {**tj["board"], "panel_height_mm": 0},
+                 "passages": tj["passages"] if look["passages"] else [],
+                 "wraps": tj["wraps"] if look["wraps"] else []}
+        (exp / "tiles/tiles.json").write_text(json.dumps(shown))
+        (exp / "tiles/borders.json").write_text(json.dumps(borders if look["borders"] else []))
         try:
             run_cmd(job, [PY, SRC / "compose_board.py", "--config", exp / "config.yaml", "--art", art_choice,
                           "--no-png"])
         finally:
             (exp / "tiles/tiles.json").write_text(json.dumps(tj, indent=1, ensure_ascii=False))
+            (exp / "tiles/borders.json").write_text(json.dumps(borders, ensure_ascii=False))
         job.say("adding frame and fields")
         inner = (exp / "board/board.svg").read_text()
+        shutil.rmtree(exp / "board")        # half-finished board: no fields, colours or frame
         first, rest = inner.split("\n", 1)
         fr = b["frame"]
         TW, TH = float(b["width_mm"]), float(b["height_mm"])
         iw, ih = float(b["inner_width_mm"]), float(b["inner_height_mm"])
         ink = c["border_color"]
+        under = []      # directly on the map, below the borders
+        if look["fill"] != "none" and float(look["fill_opacity"]) > 0:
+            job.say("colouring tiles")
+            scale = min(3, max(1, int(np.ceil(c["print_dpi"] / (ppm * 25.4)))))
+            under.append(f'<image x="0" y="0" width="{iw}" height="{b["map_height_mm"]:.3f}" '
+                         f'preserveAspectRatio="none" '
+                         f'xlink:href="data:image/png;base64,{fill_image(lab, design, look, scale)}"/>')
+        if look["circles"]:
+            radius = float(cfg["tiles"]["pawn_diameter_mm"]) / 2
+            for t in tiles:
+                if t["pawn_mm"]:
+                    under.append(f'<circle cx="{t["pawn_mm"][0]}" cy="{t["pawn_mm"][1]}" r="{radius}" fill="none" '
+                                 f'stroke="{esc(ink)}" stroke-opacity="0.6" stroke-width="0.35" '
+                                 f'stroke-dasharray="1,0.8"/>')
+        if under:
+            background, map_layer, above = rest.split("\n", 2)
+            if not map_layer.startswith(("<image", "<rect")):
+                raise RuntimeError("compose_board.py changed its layers: the map is no longer the second one")
+            rest = "\n".join([background, map_layer, *under, above])
         parts = [f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
                  f'width="{TW}mm" height="{TH}mm" viewBox="0 0 {TW} {TH}">',
                  f'<rect width="{TW}" height="{TH}" fill="{esc(cfg["webtool"]["frame_color"])}"/>',
@@ -880,8 +1025,8 @@ def job_export(name, png):
         job.say("writing board.pdf")
         cairosvg.svg2pdf(bytestring=svg.encode(), write_to=str(exp / "board.pdf"))
         prev = cairosvg.svg2png(bytestring=svg.encode(), output_width=2400)
-        import io
         Image.open(io.BytesIO(prev)).convert("RGB").save(exp / "board_preview.jpg", quality=88)
+        (exp / "board.png").unlink(missing_ok=True)     # would be out of date
         files = ["board.pdf", "board.svg", "board_preview.jpg", "tiles/tiles.json", "tiles/borders.json"]
         if png:
             job.say(f"writing board.png at {c['print_dpi']} dpi (slow)")
@@ -983,21 +1128,22 @@ class Handler(BaseHTTPRequestHandler):
                 "job": cur.as_dict() if cur else None,
                 "main_board": {"exists": main_tiles.exists(),
                                "modified": main_tiles.stat().st_mtime if main_tiles.exists() else None},
-                "board_text": BOARD_TEXT,
+                "board_text": BOARD_TEXT, "look_default": LOOK_DEFAULT, "look_before": LOOK_BEFORE,
                 "data_ok": (data_path(my_config()) / "ne_50m_land").exists(),
                 "paths": {"src": os.path.relpath(SRC, WEB), "main_out": os.path.relpath(MAIN_OUT, WEB), "webtool": "."}})
         if p == ["config"] and method == "PUT":
-            cfg = self.json_body()
+            req = self.json_body()
+            cfg = req.get("config", req) if isinstance(req, dict) else None
             if not isinstance(cfg, dict) or "board" not in cfg:
                 raise ApiError(400, "not a config")
-            save_my_config(cfg)
+            save_my_config(cfg, req.get("based_on"))
             return self.send(200, {"ok": True, "config": my_config()})
         if p == ["config", "reset"] and method == "POST":
             req = self.json_body()
             cfg, main = my_config(), main_config()
             section = req.get("section")
             if section:
-                if section in main:
+                if section in main and section not in NOT_OVERRIDDEN:
                     cfg[section] = main[section]
                 elif section == "webtool":
                     cfg["webtool"] = json.loads(json.dumps(WEBTOOL_DEFAULTS))
@@ -1005,7 +1151,10 @@ class Handler(BaseHTTPRequestHandler):
                 main["webtool"] = cfg.get("webtool")
                 cfg = main
             save_my_config(cfg)
-            return self.send(200, {"ok": True, "config": my_config()})
+            return self.send(200, {"ok": True, "config": my_config(), "main_config": main_config()})
+        if p == ["font"] and method == "GET":
+            family = parse_qs(url.query).get("family", [""])[0]
+            return self.send(200, {"family": family, "italic": has_italic(family)})
         if p == ["board-fields"] and method == "POST":
             req = self.json_body()
             return self.send(200, default_board_fields(req["board"], req["config"]))
@@ -1071,8 +1220,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"ok": True})
             if rest == ["water"] and method == "GET":
                 return self.send_file(d / "water.bin", "application/octet-stream")
-            if rest == ["art.jpg"] and method == "GET":
-                return self.send_file(d / "art.jpg", "image/jpeg")
+            if rest in (["art.jpg"], ["painting.jpg"]) and method == "GET":
+                return self.send_file(d / rest[0], "image/jpeg")
             if rest == ["copy"] and method == "POST":
                 to = design_dir(self.json_body()["to"])
                 if to.exists():
@@ -1097,7 +1246,8 @@ def main():
     a = ap.parse_args()
     for p in (STATE, RUNS, DESIGNS, WORK / "numba_cache"):
         p.mkdir(parents=True, exist_ok=True)
-    my_config()
+    if MY_CONFIG.exists() and "passages" in (load_yaml(MY_CONFIG) or {}):     # an old full copy
+        save_my_config(my_config())
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(f"Board design tool on http://{a.host}:{a.port}  (pipeline: {SRC}, read-only)")
     srv.serve_forever()

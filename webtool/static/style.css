@@ -84,6 +84,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent-2); 
 .badge.live { background: #1f3d2c; color: var(--ok); }
 .badge.regen { background: #3d311c; color: var(--accent); }
 .badge.reset { background: #243447; color: #9cc4e4; }
+.badge.edit { background: #243447; color: #9cc4e4; }
 .badge.art { background: #33223f; color: #c79bea; }
 .diffdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-2); margin-left: 4px; }
 table.ptable { width: 100%; border-collapse: collapse; font-size: 12px; }

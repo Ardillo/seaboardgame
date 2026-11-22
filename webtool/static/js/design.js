@@ -4,7 +4,7 @@
 import * as R from "./raster.js";
 import { makeProjection } from "./projection.js";
 
-const META_KEYS = ["tiles", "seas", "passages", "fields"];
+const META_KEYS = ["tiles", "seas", "passages", "fields", "look"];
 
 export class Design {
   constructor(meta, labels, water) {
@@ -21,6 +21,9 @@ export class Design {
     this.version = 0;
     this.analysis = null;
     this.analysisVersion = -1;
+    this.labVersion = 0;        // counts pixel changes only
+    this.rasterInfo = null;
+    this.borders = [];
     this.pendingAffected = new Set();
     this.listeners = [];
     this.noiseCfg = null;
@@ -104,7 +107,7 @@ export class Design {
       this.tx = null;
       return;
     }
-    if (this.tx.lab) this.lab.set(this.tx.lab);
+    if (this.tx.lab) { this.lab.set(this.tx.lab); this.labVersion++; }
     this.restoreMeta(this.tx.meta);
     this.tx = null;
     this.changed(new Set());
@@ -132,6 +135,7 @@ export class Design {
 
   changed(affected, region) {
     for (const t of affected || []) this.pendingAffected.add(t);
+    if (affected?.size) this.labVersion++;
     this.dirty = true;
     this.version++;
     this.emit("changed", { affected, region });
@@ -143,9 +147,10 @@ export class Design {
   ensureAnalysis(cfg) {
     if (this.analysisVersion === this.version && this.analysis) return this.analysis;
     const maxId = Math.max(this.maxId(), this.labMax());
-    const a = R.analyse(this.lab, this.W, this.H, maxId);
-    const minRun = ((cfg?.tiles?.min_wrap_edge_mm) ?? 4) * this.ppm;
-    a.wraps = R.wraps(this.lab, this.W, this.H, minRun);
+    if (this.rasterInfo?.at !== this.labVersion || this.rasterInfo.maxId !== maxId) {
+      this.rasterInfo = { at: this.labVersion, maxId, data: R.analyse(this.lab, this.W, this.H, maxId) };
+    }
+    const a = { ...this.rasterInfo.data };
     this.analysis = a;
     this.analysisVersion = this.version;
     // pawn spots follow the shape for tiles whose pixels changed (unless placed by hand)
@@ -157,7 +162,7 @@ export class Design {
       if (!t.pawn_manual || this.idAt(pc, pr) !== id) {
         const p = a.pole[id];
         const xy = this.pxToMap(p % this.W, Math.floor(p / this.W));
-        t.pawn_mm = [round2(xy[0]), round2(xy[1])];
+        t.pawn_mm = xy.map(R.pyRound2);
         t.pawn_manual = false;
         moved = true;
       }
@@ -166,13 +171,24 @@ export class Design {
     for (const t of this.meta.tiles) {      // tiles that never had a spot
       if (!t.pawn_mm && a.pole[t.id] >= 0) {
         const p = a.pole[t.id];
-        t.pawn_mm = this.pxToMap(p % this.W, Math.floor(p / this.W)).map(round2);
+        t.pawn_mm = this.pxToMap(p % this.W, Math.floor(p / this.W)).map(R.pyRound2);
         moved = true;
       }
     }
+    a.wraps = R.wraps(this.lab, this.W, this.H, this.ppm, this.meta.tiles.filter((t) => t.pawn_mm).map((t) => t.pawn_mm),
+      cfg?.tiles?.min_wrap_edge_mm ?? 4);
     a.graph = this.buildGraph(a);
+    const seas = this.meta.tiles.map((t) => `${t.id}:${this.seaIndex(t.sea)}`).join();
+    const key = `${this.labVersion}|${seas}`;
+    if (key !== this.bordersKey) { this.bordersKey = key; this.traceBorders(); }
     if (moved) this.emit("pawns");
     return a;
+  }
+
+  traceBorders() {
+    const seaOf = new Int16Array(this.maxId() + 1).fill(-1);
+    for (const t of this.meta.tiles) seaOf[t.id] = this.seaIndex(t.sea);
+    this.borders = R.borders(this.lab, this.water, this.W, this.H, this.ppm, seaOf);
   }
 
   labMax() { let m = 0; const L = this.lab; for (let i = 0; i < L.length; i++) if (L[i] > m) m = L[i]; return m; }
@@ -432,21 +448,14 @@ export class Design {
     this.commit();
   }
 
-  // config passages follow the config (menubar); manual ones stay
-  syncConfigPassages(cfgPassages) {
-    const manual = this.meta.passages.filter((p) => p.source !== "config");
-    const fromCfg = (cfgPassages || []).map((p) => {
-      const a = this.proj.forward(p.a[0], p.a[1]), b = this.proj.forward(p.b[0], p.b[1]);
-      return { name: p.name, kind: p.kind, enabled: p.enabled !== false, source: "config",
-               a_lonlat: p.a, b_lonlat: p.b, a_mm: a.map(round2), b_mm: b.map(round2) };
-    });
-    const next = [...fromCfg, ...manual];
-    if (JSON.stringify(next) !== JSON.stringify(this.meta.passages)) {
-      this.meta.passages = next;
-      this.analysisVersion = -1;
-      this.touchMeta();
-    }
+  // a passage of the main config, in this board's mm
+  passageFromConfig(p) {
+    const mm = (ll) => this.proj.forward(ll[0], ll[1]);
+    return { name: p.name, kind: p.kind, enabled: p.enabled !== false, source: "config",
+             a_mm: mm(p.a), b_mm: mm(p.b), via_mm: (p.via || []).map(mm) };
   }
 }
+
+export function passagePoints(p) { return [p.a_mm, ...(p.via_mm || []), p.b_mm]; }
 
 export function round2(v) { return Math.round(v * 100) / 100; }
