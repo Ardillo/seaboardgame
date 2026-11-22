@@ -1,6 +1,6 @@
 // Sea Board Designer: UI wiring (menubar, config menus, tools, sidebar, jobs, save/load).
 import { Design, round2 } from "./design.js";
-import { View, fieldHit } from "./render.js";
+import { View, fieldHit, fieldLabels, boardText } from "./render.js";
 
 // ================================================================ small helpers
 const $ = (s, el = document) => el.querySelector(s);
@@ -49,7 +49,7 @@ const app = {
   tool: "select",
   sel: { tiles: new Set(), field: null, passage: null, sea: null },
   vo: Object.assign({ art: true, fill: "sea", fillAlpha: 0.28, borders: true, numbers: true, circles: true,
-    labels: true, passages: true, wraps: true, daytrack: true, fields: true, problems: true, unassigned: false }, store("vo") || {}),
+    labels: true, passages: true, wraps: true, fields: true, problems: true, unassigned: false }, store("vo") || {}),
   opts: Object.assign({ iterations: 12, relaxNeighbours: true, scope: "same", splitNeighbours: false, newTileArea: 0,
     brushMm: 3, protect: false, lockTile: 0, linkKind: "canal", autosave: true,
     field: { shape: "rounded", w: 20, h: 20, kind: "field", color: "#c8743a", label: "" } }, store("opts") || {}),
@@ -73,8 +73,8 @@ const TOOLS = [
 const SECTION_TITLES = { board: "Board", map: "Map", tiles: "Tiles", seas: "Seas", passages: "Passages",
   art: "Art", compose: "Compose", day_track: "Day track", webtool: "Frame" };
 const LIVE_KEYS = ["tiles.pawn_diameter_mm", "tiles.min_wrap_edge_mm", "tiles.border_noise", "tiles.noise_scale_mm",
-  "webtool.frame_color", "webtool.snap_mm"];
-const LIVE_PREFIX = ["compose", "day_track", "passages"];
+  "webtool.frame_color", "webtool.snap_mm", "day_track.panel_color"];
+const LIVE_PREFIX = ["compose", "passages"];
 const FIELD_KINDS = ["track", "event", "harbour", "deck", "card slot", "score", "threat", "reserve", "storage", "rule"];
 
 // ================================================================ toast / status / dialogs
@@ -128,8 +128,12 @@ async function boot() {
   $("#jobpill").onclick = () => setTab("log");
   try {
     const st = await api("/api/state");
-    app.cfg = st.config; app.mainCfg = st.main_config; app.comments = st.comments; app.paths = st.paths;
+    app.cfg = st.config; app.mainCfg = st.main_config; app.comments = st.comments; app.paths = st.paths; app.text = st.board_text;
     app.mainBoard = st.main_board;
+    if (!app.text) {        // the page is new but the Python server still runs the old code
+      toast("The tool was updated: restart the server (run.sh), then reload this page.", true);
+      return;
+    }
     buildMenus();
     setTool(app.tool);
     if (st.job && st.job.status === "running") watchJob(st.job);
@@ -222,6 +226,9 @@ function downloadJSON() {
   if (!d) return;
   const a = d.ensureAnalysis(app.cfg);
   const out = clone(d.meta);
+  out.fields.forEach((f) => {
+    if (f.day != null) { const n = fieldLabels(f, boardText(app)); f.label = n.label; f.sublabel = n.sub; }
+  });
   out.tiles.forEach((t) => {
     t.area_mm2 = round2(a.area[t.id] / d.ppm / d.ppm);
     t.inscribed_diameter_mm = round2((a.inscribedPx[t.id] * 2) / d.ppm);
@@ -452,10 +459,12 @@ function buildMenus() {
       item("Zoom in", () => app.view.zoomAt(app.view.cw / 2, app.view.ch / 2, 1.25), { key: "+" }),
       item("Zoom out", () => app.view.zoomAt(app.view.cw / 2, app.view.ch / 2, 0.8), { key: "−" }),
       item("Actual size (approx.)", () => { const b = app.view.toBoard(app.view.cw / 2, app.view.ch / 2); app.view.scale = 96 / 25.4; app.view.centerOn(...b); }),
-      div(), head("Layers"),
+      div(), head("On the board (also in export)"),
+      ...boardParts().map((b) => item(b.name, b.toggle, { checked: b.shown, disabled: noDesign() })),
+      div(), head("Layers (screen only)"),
       toggle("art", "Map art"), toggle("borders", "Tile borders"), toggle("numbers", "Tile numbers"),
       toggle("circles", "Pawn circles"), toggle("labels", "Sea names"), toggle("passages", "Passages"),
-      toggle("wraps", "Wrap-around arrows"), toggle("daytrack", "Day track"), toggle("fields", "Fields"),
+      toggle("wraps", "Wrap-around arrows"), toggle("fields", "Fields"),
       toggle("problems", "Highlight problems"), toggle("unassigned", "Show water without a tile"),
       div(), head("Tile colour"),
       ...[["sea", "By sea"], ["tile", "Every tile different"], ["none", "None (art only)"]].map(([v, l]) =>
@@ -491,6 +500,7 @@ function setPath(o, path, v) {
 }
 function effectOf(path) {
   if (path.startsWith("art")) return "art";
+  if (path.startsWith("day_track.") && !LIVE_KEYS.includes(path)) return "reset";
   if (LIVE_KEYS.includes(path) || LIVE_PREFIX.some((p) => path === p || path.startsWith(p + "."))) return "live";
   return "regen";
 }
@@ -544,9 +554,13 @@ function configPanel(section) {
   const body = h("div", { class: "cfgpanel" + (wide ? " wide" : "") }, head);
   const note = { board: "Changes need new tiles (Generate › New tiles).", map: "Changes need new tiles.",
     seas: "Changes need new tiles.", passages: "Passages update live on the current design.",
-    compose: "Live in the view, used by Export.", day_track: "Live in the view, used by Export.",
+    compose: "Live in the view, used by Export.", day_track: "Each day is a field: click it on the board to edit it. The values below are the defaults for Reset day track.",
     art: "Used by Generate › art runs.", webtool: "Frame changes need new tiles (the map shrinks to make room)." }[section];
   if (note) body.append(h("div", { class: "muted", style: "margin-bottom:6px" }, note));
+  if (section === "day_track" && app.design) {
+    body.append(h("div", { class: "row", style: "margin-bottom:6px" },
+      h("button", { onclick: () => { closeMenus(); resetDayTrack(); } }, "Reset day track")));
+  }
   if (section === "passages") body.append(passagesTable());
   else renderFields(body, val, section);
   body.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -601,7 +615,7 @@ function cfgRow(path, key, v) {
   const row = h("div", { class: "cfgrow" },
     h("label", { title: path }, key, h("span", { class: "diffdot", hidden: !differs, title: `main project: ${JSON.stringify(mainV)}` })),
     h("div", { class: "ctl" }, ctl),
-    h("span", { class: "badge " + eff, title: eff === "live" ? "applies immediately" : eff === "art" ? "used by art runs" : "needs new tiles" }, eff === "regen" ? "regenerate" : eff),
+    h("span", { class: "badge " + eff, title: { live: "applies immediately", art: "used by art runs", reset: "used when you press Reset day track", regen: "needs new tiles" }[eff] }, { regen: "regenerate", reset: "on reset" }[eff] || eff),
     app.comments[path] ? h("div", { class: "help" }, app.comments[path]) : null);
   return row;
 }
@@ -795,6 +809,8 @@ function bindCanvas() {
 function startPan(p) { app.drag = { type: "pan", sx: p.sx, sy: p.sy, tx: app.view.tx, ty: app.view.ty }; updateCursor(); }
 
 function onDown(e) {
+  // commit what is being typed first; its change event would otherwise end the drag's undo step
+  if (document.activeElement !== document.body) document.activeElement?.blur();
   const d = app.design;
   const p = pointerInfo(e);
   $("#view").setPointerCapture(e.pointerId);
@@ -1186,20 +1202,38 @@ function summaryStats() {
 function fieldInspector(f) {
   const d = app.design;
   if (!f) return null;
-  const set = (k, v) => { d.edit("edit field", (m) => { const x = m.fields.find((y) => y.id === f.id); x[k] = v; }); app.view.requestDraw(); };
-  const numIn = (k, step = 1) => h("input", { type: "number", value: f[k] ?? "", step, onchange: (e) => set(k, e.target.value === "" ? null : +e.target.value) });
+  const set = (k, v) => {
+    if (!d.meta.fields.some((y) => y.id === f.id)) return;
+    d.edit("edit field", (m) => { m.fields.find((y) => y.id === f.id)[k] = v; });
+    app.view.requestDraw();
+  };
+  const numIn = (k, step = 1) => h("input", { type: "number", value: f[k] ?? "", step, onchange: (e) => {
+    const raw = e.target.value, needed = ["x", "y", "w", "h"].includes(k);
+    if (needed && raw === "") { e.target.value = f[k]; return; }
+    const v = raw === "" ? null : k === "w" || k === "h" ? Math.max(1, +raw) : +raw;
+    if (v !== null) e.target.value = v;
+    set(k, v);
+  } });
+  const names = fieldLabels(f, boardText(app));
+  const isLegend = f.shape === "legend";
   return [h("div", { class: "sec" }, h("h3", {}, `Field · ${f.kind || "field"}`),
     h("div", { class: "formgrid" },
-      h("label", {}, "Kind"), h("input", { type: "text", value: f.kind || "", list: "kinds", onchange: (e) => set("kind", e.target.value) }),
-      h("label", {}, "Label"), h("textarea", { rows: 2, onchange: (e) => set("label", e.target.value) }, f.label || ""),
-      h("label", {}, "Shape"), h("select", { onchange: (e) => set("shape", e.target.value) }, ["rect", "rounded", "circle", "hex", "diamond"].map((s) => h("option", { value: s, selected: f.shape === s }, s))),
+      h("label", {}, "On board"), h("label", {}, h("input", { type: "checkbox", checked: !f.hidden,
+        onchange: (e) => { e.target.blur(); set("hidden", !e.target.checked); } }), " show, also in export"),
+      ...(isLegend ? [] : [
+        h("label", {}, "Kind"), h("input", { type: "text", value: f.kind || "", list: "kinds", onchange: (e) => set("kind", e.target.value) }),
+        h("label", {}, "Label"), h("textarea", { rows: 2, onchange: (e) => set("label", e.target.value) }, names.label),
+        h("label", {}, "Small text"), h("input", { type: "text", value: names.sub, onchange: (e) => set("sublabel", e.target.value) }),
+        h("label", {}, "Shape"), h("select", { onchange: (e) => set("shape", e.target.value) }, ["rect", "rounded", "circle", "hex", "diamond"].map((s) => h("option", { value: s, selected: f.shape === s }, s))),
+      ]),
       h("label", {}, "x / y (mm)"), h("div", { class: "row" }, numIn("x", 0.5), numIn("y", 0.5)),
       h("label", {}, "w / h (mm)"), h("div", { class: "row" }, numIn("w", 0.5), numIn("h", 0.5)),
       h("label", {}, "Rotation °"), numIn("rotation", 15),
-      h("label", {}, "Fill"), h("div", { class: "row" }, h("input", { type: "color", value: f.color || "#c8743a", onchange: (e) => set("color", e.target.value) }),
+      h("label", {}, isLegend ? "Opacity" : "Fill"), h("div", { class: "row" },
+        isLegend ? null : h("input", { type: "color", value: f.color || "#c8743a", onchange: (e) => set("color", e.target.value) }),
         h("input", { type: "range", min: 0, max: 1, step: 0.05, value: f.opacity ?? 1, title: "opacity", onchange: (e) => set("opacity", +e.target.value) })),
       h("label", {}, "Text colour"), h("input", { type: "color", value: f.text_color || app.cfg.compose.border_color, onchange: (e) => set("text_color", e.target.value) }),
-      h("label", {}, "Font (mm)"), numIn("font_mm", 0.5),
+      ...(isLegend ? [] : [h("label", {}, "Font (mm)"), numIn("font_mm", 0.5)]),
       h("label", {}, "Group"), h("span", { class: "muted" }, f.group || "–"),
       h("label", {}, "Notes"), h("textarea", { rows: 3, placeholder: "what this space is for (game rules later)", onchange: (e) => set("notes", e.target.value) }, f.notes || ""))),
   h("div", { class: "row" }, h("button", { onclick: duplicateField }, "Duplicate (Ctrl+D)"),
@@ -1285,6 +1319,11 @@ function renderFieldsTab() {
   const kinds = new Map();
   for (const f of d.meta.fields) { const k = f.kind || "field"; if (!kinds.has(k)) kinds.set(k, []); kinds.get(k).push(f); }
   return [
+    h("div", { class: "sec" }, h("h3", {}, "Day track and legend"),
+      ...boardParts().map((b) => h("div", { class: "row", style: "margin-bottom:4px" },
+        h("label", {}, h("input", { type: "checkbox", checked: b.shown,
+          onchange: (e) => { e.target.blur(); b.toggle(); } }), " " + b.name),
+        h("button", { style: "margin-left:auto", onclick: b.reset }, `Reset ${b.name.toLowerCase()}`)))),
     h("div", { class: "sec" }, h("h3", {}, "Edge track generator"),
       h("p", { class: "muted" }, `Lays out a row of fields along a board edge. Board ${d.board.width_mm}×${d.board.height_mm} mm; frame ${fr.top}/${fr.right}/${fr.bottom}/${fr.left} mm (set under Frame in the menubar, then regenerate, to keep fields off the map).`),
       h("div", { class: "formgrid" },
@@ -1309,10 +1348,46 @@ function renderFieldsTab() {
             if (await confirmBox("Delete fields", `Delete all ${fs.length} fields of kind '${k}'?`, "Delete", true)) {
               d.edit("delete fields", (m) => { m.fields = m.fields.filter((f) => (f.kind || "field") !== k); }); select(null);
             } } }, "delete all")),
-        h("div", { class: "chips", style: "margin-top:4px" }, fs.map((f) => h("span", { class: "chip", onclick: () => { select("field", f.id); app.view.centerOn(f.x, f.y); } }, f.label || "·"))))),
+        h("div", { class: "chips", style: "margin-top:4px" }, fs.map((f) => h("span", { class: "chip", onclick: () => { select("field", f.id); app.view.centerOn(f.x, f.y); } }, fieldChip(f)))))),
     ),
   ];
 }
+
+function fieldChip(f) {
+  const name = f.shape === "legend" ? "Legend" : fieldLabels(f, boardText(app)).label || "·";
+  return f.hidden ? `${name} (hidden)` : name;
+}
+
+// ---------------------------------------------------------------- day track + legend
+const inDayTrack = (f) => f.group === "day-track";
+const isBoardLegend = (f) => f.id === "legend";
+
+function boardParts() {
+  return [["Day track", inDayTrack, resetDayTrack], ["Legend", isBoardLegend, resetLegend]].map(([name, match, reset]) => {
+    const list = app.design?.meta.fields.filter(match) || [];
+    const shown = list.some((f) => !f.hidden);
+    return { name, shown, reset, toggle: () => {
+      if (!list.length) { reset(); return; }        // all deleted: showing brings the default back
+      app.design.edit(`${shown ? "hide" : "show"} ${name.toLowerCase()}`,
+        (m) => m.fields.filter(match).forEach((f) => { f.hidden = shown; }));
+      refreshSidebar();
+    } };
+  });
+}
+
+async function resetBoardPart(name, match, pick) {
+  const d = app.design;
+  try {
+    const fresh = pick(await postJSON("/api/board-fields", { board: d.board, config: app.cfg }));
+    if (d !== app.design) return;
+    if (!fresh.length) { toast("No room for day squares: space_mm is 0, or the bottom panel is lower than 6 mm", true); return; }
+    d.edit(`reset ${name}`, (m) => { m.fields = [...fresh, ...m.fields.filter((f) => !match(f))]; });
+    refreshSidebar();
+    toast(`The ${name} is back to its default (Ctrl+Z undoes it)`);
+  } catch (e) { toast(e.message, true); }
+}
+function resetDayTrack() { return resetBoardPart("day track", inDayTrack, (r) => r.days); }
+function resetLegend() { return resetBoardPart("legend", isBoardLegend, (r) => [r.legend]); }
 
 function generateTrack(g) {
   const d = app.design, b = d.board, fr = d.frame;

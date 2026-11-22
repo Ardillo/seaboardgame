@@ -1,13 +1,4 @@
 // Canvas view: pan/zoom, a raster overlay for tiles, and vector layers drawn on top.
-const DAYS = {
-  en: [["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
-       ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-       { canal: "Canal", strait: "Strait", wrap: "Sail around the world" }],
-  nl: [["MA", "DI", "WO", "DO", "VR", "ZA", "ZO"],
-       ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"],
-       { canal: "Kanaal", strait: "Zeestraat", wrap: "Rond de wereld varen" }],
-};
-
 export function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(hex || "");
   return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [200, 200, 200];
@@ -304,8 +295,10 @@ export class View {
         }
       }
     }
-    // day track (same layout as compose_board.py)
-    if (vo.daytrack && PH > 5) this.drawDayTrack(ctx, cfg, iw, MH, PH, ink, font);
+    if (PH > 5) {       // top edge of the bottom panel
+      ctx.strokeStyle = ink; ctx.lineWidth = 0.6;
+      line(ctx, 0, MH, iw, MH);
+    }
     // link tool: first point
     if (app.linkStart) {
       ctx.beginPath(); ctx.arc(app.linkStart[0], app.linkStart[1], 1.2, 0, 7);
@@ -324,7 +317,10 @@ export class View {
     ctx.restore();
 
     // fields (board coordinates)
-    if (vo.fields) for (const f of d.meta.fields) drawField(ctx, f, app.sel.field === f.id, ink, font);
+    if (vo.fields) {
+      const text = boardText(app);
+      for (const f of d.meta.fields) if (!f.hidden) drawField(ctx, f, app.sel.field === f.id, ink, font, text);
+    }
     // map outline
     ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1 / this.scale;
     ctx.strokeRect(fr.left, fr.top, iw, ih);
@@ -333,42 +329,6 @@ export class View {
       ctx.beginPath(); ctx.arc(app.hoverBoard[0], app.hoverBoard[1], app.opts.brushMm, 0, 7);
       ctx.strokeStyle = app.tool === "erase" ? "#ff8080" : "#ffffff"; ctx.lineWidth = 1.2 / this.scale; ctx.stroke();
     }
-  }
-
-  drawDayTrack(ctx, cfg, W, MH, PH, ink, font) {
-    const dt = cfg.day_track;
-    const [abbr, full, words] = DAYS[cfg.compose.language] || DAYS.en;
-    const G = dt.gap_mm, WG = dt.weekend_gap_mm;
-    const S = Math.min(dt.space_mm, PH - 6);
-    let x = (W - (7 * S + 5 * G + WG)) / 2;
-    const y = MH + (PH - S) / 2;
-    ctx.strokeStyle = ink; ctx.lineWidth = 0.6;
-    line(ctx, 0, MH, W, MH);
-    for (let i = 0; i < 7; i++) {
-      ctx.beginPath();
-      roundRect(ctx, x, y, S, S, S * 0.18);
-      ctx.fillStyle = i >= 5 ? dt.weekend_color : dt.workday_color; ctx.fill();
-      ctx.strokeStyle = ink; ctx.lineWidth = 0.6; ctx.stroke();
-      ctx.fillStyle = dt.text_color; ctx.textAlign = "center";
-      ctx.font = `bold ${(S * 0.3).toFixed(1)}px ${font}`;
-      ctx.fillText(abbr[i], x + S / 2, y + S * 0.52);
-      ctx.globalAlpha = 0.85;
-      ctx.font = `italic ${(S * 0.13).toFixed(1)}px ${font}`;
-      ctx.fillText(full[i], x + S / 2, y + S * 0.8);
-      ctx.globalAlpha = 1;
-      x += S + (i === 4 ? WG : G);
-    }
-    const lx = W - 70, ly = MH + PH / 2 - 6;
-    ctx.textAlign = "left"; ctx.font = `3.6px ${font}`;
-    [["canal", [2.2, 1.4]], ["strait", [0.6, 1.2]]].forEach(([k, dash], i) => {
-      ctx.setLineDash(dash); ctx.strokeStyle = ink; ctx.lineWidth = 0.9;
-      line(ctx, lx, ly + i * 6, lx + 10, ly + i * 6); ctx.setLineDash([]);
-      ctx.fillStyle = ink; ctx.fillText(words[k], lx + 13, ly + i * 6 + 1.3);
-    });
-    const yy = ly + 12;
-    ctx.beginPath(); ctx.moveTo(lx, yy - 2); ctx.lineTo(lx + 3.2, yy); ctx.lineTo(lx, yy + 2); ctx.closePath();
-    ctx.fillStyle = ink; ctx.fill();
-    ctx.fillText(words.wrap, lx + 13, yy + 1.3);
   }
 }
 
@@ -427,27 +387,68 @@ export function fieldPath(ctx, f) {
   } else roundRect(ctx, -w / 2, -h / 2, w, h, Math.min(w, h) * (f.shape === "rounded" ? 0.18 : 0.04));
 }
 
-export function drawField(ctx, f, selected, ink, font) {
+export function boardText(app) {
+  return app.text[app.cfg.compose.language] || app.text.en;
+}
+
+// A day keeps following the board language until its label is renamed (label null = default name).
+export function fieldLabels(f, text) {
+  const isDay = f.day != null;
+  return {
+    label: String(f.label ?? (isDay ? text.days[f.day] : "")),
+    sub: String(f.sublabel ?? (isDay ? text.day_names[f.day] : "")),
+  };
+}
+
+function drawLegend(ctx, f, ink, font, text) {
+  const k = Math.min(f.w / 62, f.h / 18);
+  const colour = f.text_color || ink;
+  ctx.save();
+  ctx.scale(k, k);
+  ctx.globalAlpha = f.opacity ?? 1;
+  ctx.fillStyle = colour; ctx.strokeStyle = colour; ctx.lineWidth = 0.9; ctx.lineCap = "butt";
+  ctx.textAlign = "left"; ctx.font = `3.6px ${font}`;
+  [[2.2, 1.4], [0.6, 1.2], null].forEach((dash, i) => {
+    const y = -6 + 6 * i;
+    if (dash) { ctx.setLineDash(dash); line(ctx, -30, y, -20, y); ctx.setLineDash([]); }
+    else { ctx.beginPath(); ctx.moveTo(-30, y - 2); ctx.lineTo(-26.8, y); ctx.lineTo(-30, y + 2); ctx.closePath(); ctx.fill(); }
+    ctx.fillText(text.legend[i], -17, y + 1.3);
+  });
+  ctx.restore();
+}
+
+// same layout as field_svg / legend_svg in server.py
+export function drawField(ctx, f, selected, ink, font, text) {
   ctx.save();
   ctx.translate(f.x, f.y);
   ctx.rotate(((f.rotation || 0) * Math.PI) / 180);
-  fieldPath(ctx, f);
-  ctx.globalAlpha = f.opacity ?? 1;
-  ctx.fillStyle = f.color || "#c8743a";
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = f.stroke || ink;
-  ctx.lineWidth = 0.6;
-  ctx.stroke();
-  const label = String(f.label ?? "");
-  if (label) {
-    const lines = label.split("\n");
-    const fs = f.font_mm || Math.max(Math.min(f.w, f.h) * 0.28, 1.5);
-    ctx.font = `bold ${fs}px ${font}`;
+  if (f.shape === "legend") drawLegend(ctx, f, ink, font, text);
+  else {
+    fieldPath(ctx, f);
+    ctx.globalAlpha = f.opacity ?? 1;
+    ctx.fillStyle = f.color || "#c8743a";
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = f.stroke || ink;
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+    const { label, sub } = fieldLabels(f, text);
+    const size = Math.min(f.w, f.h);
     ctx.textAlign = "center";
     ctx.fillStyle = f.text_color || ink;
-    const y0 = -(lines.length - 1) * fs * 0.6;
-    lines.forEach((ln, i) => ctx.fillText(ln, 0, y0 + i * fs * 1.2 + fs * 0.35));
+    if (label) {
+      const lines = label.split("\n");
+      const fs = f.font_mm || (sub ? Math.round(size * 3) / 10 : Math.max(size * 0.28, 1.5));
+      const base = sub ? f.h * 0.02 - (lines.length - 1) * fs * 1.2 : fs * 0.35 - (lines.length - 1) * fs * 0.6;
+      ctx.font = `bold ${fs}px ${font}`;
+      lines.forEach((ln, i) => ctx.fillText(ln, 0, base + i * fs * 1.2));
+    }
+    if (sub) {
+      ctx.font = `italic ${(size * 0.13).toFixed(1)}px ${font}`;
+      ctx.globalAlpha = 0.85;
+      ctx.fillText(sub, 0, f.h * (label ? 0.3 : 0.05));
+      ctx.globalAlpha = 1;
+    }
   }
   if (selected) {
     ctx.strokeStyle = "#ffd23c";
@@ -460,6 +461,7 @@ export function drawField(ctx, f, selected, ink, font) {
 }
 
 export function fieldHit(f, x, y) {
+  if (f.hidden) return false;
   const a = (-(f.rotation || 0) * Math.PI) / 180;
   const dx = x - f.x, dy = y - f.y;
   const lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);

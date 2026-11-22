@@ -19,6 +19,12 @@ with the tool's own copy of the config, and all output stays in this folder. All
 | Tools (left) | **Select** (V) · **Move tile** (M: drag a tile to a new centre, neighbours regrow) · **Add/split** (A: click in a tile to split it, click empty water to grow a new tile) · **Merge** (G) · **Brush** (B: drag from inside a tile to grow it) · **Eraser** (E) · **Fields** (F: free spaces on the board for game uses not yet known) · **Link** (L: extra passage between two tiles) · **Pan** (H / Space / middle mouse) |
 | Sidebar | Inspect (tile, field, passage), Seas (rename, colour, class, label), Fields (edge-track generator: top, bottom, left, right, all around, bottom panel), Report (pawn fit, fragments, unreachable tiles, size outliers, passages), Log (job output). |
 
+The seven **day squares** and the **legend** are fields: click to edit, drag to move, Del to delete.
+Show or hide them under View or in the Fields tab (export follows this); *Reset day track* and
+*Reset legend* bring the defaults back. The Day track menu holds the defaults used by that reset,
+and a day follows the board language until you rename it. Designs from before this change get
+these fields when opened. The empty strip below the map is board height the map does not need.
+
 Undo/redo covers every edit (Ctrl+Z / Ctrl+Y). Designs autosave every minute (File menu).
 
 To keep fields off the map, set a **Frame** (menubar) and generate new tiles: the map

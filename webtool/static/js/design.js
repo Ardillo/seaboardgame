@@ -100,6 +100,10 @@ export class Design {
 
   cancel() {
     if (!this.tx) return;
+    if (!this.tx.lab && this.snapshotMeta() === this.tx.meta) {     // a plain click: nothing to take back
+      this.tx = null;
+      return;
+    }
     if (this.tx.lab) this.lab.set(this.tx.lab);
     this.restoreMeta(this.tx.meta);
     this.tx = null;
