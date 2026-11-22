@@ -24,10 +24,6 @@ $PY fetch_data.py       # Natural Earth: ~90 MB download, ~170 MB on disk
 All commands below run from `src/`. In a new shell, repeat `cd src` and the `PY=` line.
 `fetch_data.py` skips folders that exist; after a broken download, delete that folder and run it again.
 
-### Windows
-
-TODO
-
 ## Build the board
 
 ```bash

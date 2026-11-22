@@ -55,8 +55,6 @@ Later stage (not decided yet): a physical or digital co-op board game.
 - [x] Map art: atlas map (SDXL painting not used for now)
 - [x] 2026-11-22: dotted pawn circles removed, Suez drawn over water, open seas without room for a pawn merged (no tile-less patches)
 - [x] 2026-11-22: license, credit, relative paths, setup docs tested in a fresh clone, Dutch ocean names
-- [ ] Windows setup (TODO in `README.md`)
-- [ ] Print proof: print part of the board at 100% and check the pawn size against the smallest tiles
 
 ## Current result (2026-11-22: 107 tiles, 29 seas, 12 mm pawn)
 
