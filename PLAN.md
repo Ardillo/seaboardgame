@@ -146,8 +146,14 @@ no other session should edit `src/` at the same time.
 3. `..`, `.` and names starting with a dot were accepted as design names and pointed outside `designs/`.
    Now a name has to start with a letter or digit.
 
-`webtool/tests/server_safety.py` checks all of this (37 checks, including no saving into a design while a job
-replaces it); the code from before PR 1 fails the checks for all three bugs.
+4. Found after PR 1 (fixed in a small follow-up PR): Cancel pressed in the first moment of a job, before the
+   generator had started, was ignored, so the job ran on for the whole generation (about 5 minutes). Now Cancel
+   stops a job within a second at any moment.
+
+`webtool/tests/server_safety.py` checks all of this (39 checks, including no saving into a design while a job
+replaces it and both Cancel cases). The code from before PR 1 fails the checks for all three bugs; the code from
+before the Cancel fix fails "Cancel right after Generate". Every wait in the test has a time limit, so a broken
+server makes it fail, not hang.
 
 **SDXL: everything that goes**
 - `make_art.py` except the atlas-map step, which moves into Generate.

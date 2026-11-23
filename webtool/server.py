@@ -322,10 +322,16 @@ def start_job(kind, title, fn, builds=None):
 
 
 def run_cmd(job, args, cwd=SRC):
+    if job.cancelled:       # cancelled before this step started: don't start it
+        raise RuntimeError("cancelled")
     job.say("$ " + " ".join(str(a) for a in args))
     proc = subprocess.Popen([str(a) for a in args], cwd=str(cwd), env=ENV, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, bufsize=1)
     job.proc = proc
+    # Cancel sets `cancelled` and then stops `job.proc`; if it came while the process was being started, it found
+    # no process yet, so stop it here. (Set proc, then check: one of the two always sees the other.)
+    if job.cancelled:
+        proc.terminate()
     for line in proc.stdout:
         if "FutureWarning" in line or "should be kept in float32" in line or "deprecate(" in line:
             continue
@@ -1252,9 +1258,10 @@ class Handler(BaseHTTPRequestHandler):
             if p == ["jobs", "cancel"] and method == "POST":
                 cur = CURRENT_JOB[0]
                 if cur and cur.status == "running":
-                    cur.cancelled = True
-                    if cur.proc:
-                        cur.proc.terminate()
+                    cur.cancelled = True        # first the flag, then the process (see run_cmd)
+                    proc = cur.proc
+                    if proc:
+                        proc.terminate()
                 return self.send(200, {"ok": True})
             if p == ["jobs"] and method == "POST":
                 req = self.json_body()
