@@ -51,7 +51,7 @@ Run from this folder:
 ```bash
 ../.venv/bin/python tests/reference.py         # same board as the saved references (about 3 min)
 ../.venv/bin/python tests/reference.py --full  # also the real board settings (minutes more)
-../.venv/bin/python tests/server_safety.py     # no reading or overwriting what a request should not (seconds)
+../.venv/bin/python tests/server_safety.py     # no reading or overwriting what a request should not; Cancel works (seconds)
 ```
 
 `tests/reference.py` runs the pipeline and the tool on fixed settings (`tests/reference_config.yaml`) and compares
