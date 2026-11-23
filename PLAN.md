@@ -94,7 +94,7 @@ data/                    downloaded map data, not in git
 | PR | What | Done when |
 |---|---|---|
 | 1. Safety ✓ | Reference tests (`webtool/tests/reference.py`) and a server safety test (`webtool/tests/server_safety.py`); the three server bugs fixed | tests pass; the three bugs cannot be reproduced |
-| 2. Speed | Single-core rewrite of the tile search (Findings) | byte-identical board on the reference settings; your board in about 100 s or less on the target machine |
+| 2. Speed | Single-core rewrite of the tile search (Findings; the prototype, its diff and checks are in `PR_2_speed_prototype.md`) | byte-identical board on the reference settings; your board in about 100 s or less on the target machine |
 | 3. First start | Check the map data at start and download what is missing in the background, with progress and Retry. A folder only counts when it is complete. Editing and export keep working meanwhile; Generate and the map image wait | works from an empty, a half-downloaded and an offline start |
 | 4. One app, no SDXL | One composer and one settings source instead of the pipeline scripts plus the webtool. SDXL removed. "Reset to main" becomes "Reset to defaults" | export identical to today's for the same design |
 | 5. Move | New layout; old designs are upgraded when opened | your design opens and exports the same |
