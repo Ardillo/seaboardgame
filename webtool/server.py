@@ -61,7 +61,8 @@ ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONUNBUFFERED="1",
            NUMBA_CACHE_DIR=str(WORK / "numba_cache"))
 
 Image.MAX_IMAGE_PIXELS = None
-NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")     # no "." or ".." (folders outside designs/)
+SAMPLE_RE = re.compile(r"^[A-Za-z0-9_.-]+_sheet\.jpg$")
 
 WEBTOOL_DEFAULTS = {
     "frame": {"top": 0, "right": 0, "bottom": 0, "left": 0},
@@ -273,9 +274,10 @@ def check_data(cfg):
 
 # ------------------------------------------------------------------ jobs
 class Job:
-    def __init__(self, kind, title):
+    def __init__(self, kind, title, builds=None):
         self.id = f"{int(time.time() * 1000):x}"
         self.kind, self.title = kind, title
+        self.builds = builds        # name of the design this job (re)writes, if any
         self.status, self.log, self.result, self.error = "running", [], None, None
         self.started, self.ended, self.proc = time.time(), None, None
         self.cancelled = False
@@ -296,12 +298,12 @@ JOB_LOCK = threading.Lock()
 CURRENT_JOB = [None]
 
 
-def start_job(kind, title, fn):
+def start_job(kind, title, fn, builds=None):
     with JOB_LOCK:
         cur = CURRENT_JOB[0]
         if cur and cur.status == "running":
             raise ApiError(409, f"another job is running: {cur.title}")
-        job = Job(kind, title)
+        job = Job(kind, title, builds)
         CURRENT_JOB[0] = job
 
     def target():
@@ -344,8 +346,39 @@ def sea_color(i):
 
 def design_dir(name):
     if not NAME_RE.match(name or ""):
-        raise ApiError(400, "design names may only use letters, digits, '.', '_' and '-'")
-    return DESIGNS / name
+        raise ApiError(400, "design names start with a letter or digit and may only use letters, digits, "
+                            "'.', '_' and '-'")
+    d = DESIGNS / name
+    if d.resolve().parent != DESIGNS.resolve():
+        raise ApiError(400, f"not a design name: {name}")
+    return d
+
+
+def not_being_built(name):
+    """Saving a design while a job rebuilds it would mix the old design into the new one."""
+    cur = CURRENT_JOB[0]
+    if cur and cur.status == "running" and cur.builds == name:
+        raise ApiError(409, f"design '{name}' is being replaced by a running job ({cur.title})")
+
+
+def target_design(name, replace):
+    """Folder for a design that a job is about to (re)build: an existing design is only replaced when asked."""
+    d = design_dir(name)
+    if (d / "design.json").exists() and not replace:
+        raise ApiError(409, f"design '{name}' already exists")
+    return d
+
+
+def inside(path, folder):
+    """`path` resolved, if it lies inside `folder`; else None."""
+    p = Path(path).resolve()
+    return p if Path(folder).resolve() in p.parents else None
+
+
+def run_dir_of(design):
+    """The design's generator run folder, but only when it is one of ours (run_dir comes from design.json)."""
+    rd = design.get("run_dir")
+    return inside(WEB / rd, RUNS) if rd else None
 
 
 def make_display_art(d, stem="art"):
@@ -543,11 +576,11 @@ def same_geometry(a, b):
     return all(float(a[s][k]) == float(b[s][k]) if k != "projection" else a[s][k] == b[s][k] for s, k in keys)
 
 
-def job_generate(name, with_guide):
+def job_generate(name, with_guide, replace=False):
+    target_design(name, replace)
     cfg = my_config()
     run_id = time.strftime("%Y%m%d-%H%M%S")
     run_dir = RUNS / run_id
-    design_dir(name)
 
     def fn(job):
         check_data(cfg)
@@ -569,11 +602,11 @@ def job_generate(name, with_guide):
             run_cmd(job, [PY, SRC / "make_art.py", "guide", "--config", cfg_path])
         return build_design(job, name, run_dir, rc, fr, float(cfg["board"]["width_mm"]),
                             float(cfg["board"]["height_mm"]), f"generated (run {run_id})", run_dir)
-    return start_job("generate", f"Generate tiles -> {name}", fn)
+    return start_job("generate", f"Generate tiles -> {name}", fn, builds=name)
 
 
-def job_import_main(name):
-    design_dir(name)
+def job_import_main(name, replace=False):
+    target_design(name, replace)
 
     def fn(job):
         if not (MAIN_OUT / "tiles/tiles.json").exists():
@@ -585,14 +618,14 @@ def job_import_main(name):
         frame = {"top": 0, "right": 0, "bottom": 0, "left": 0}
         return build_design(job, name, MAIN_OUT, cfg, frame, float(b["width_mm"]), float(b["height_mm"]),
                             f"imported from {os.path.relpath(MAIN_OUT, WEB)}")
-    return start_job("import", f"Import main board -> {name}", fn)
+    return start_job("import", f"Import main board -> {name}", fn, builds=name)
 
 
 def design_run_dir(design):
     """A run dir with a config that matches the design geometry (made on demand)."""
-    rd = design.get("run_dir")
-    if rd and (WEB / rd / "config.yaml").exists():
-        return WEB / rd
+    rd = run_dir_of(design)
+    if rd and (rd / "config.yaml").exists():
+        return rd
     run_dir = RUNS / ("for-" + design["name"] + "-" + time.strftime("%Y%m%d-%H%M%S"))
     (run_dir / "art").mkdir(parents=True, exist_ok=True)
     rc = json.loads(json.dumps(design["config"]))
@@ -1227,9 +1260,9 @@ class Handler(BaseHTTPRequestHandler):
                 req = self.json_body()
                 kind = req.get("kind")
                 if kind == "generate":
-                    job = job_generate(req["name"], req.get("guide", True))
+                    job = job_generate(req["name"], req.get("guide", True), req.get("replace") is True)
                 elif kind == "import":
-                    job = job_import_main(req["name"])
+                    job = job_import_main(req["name"], req.get("replace") is True)
                 elif kind == "art":
                     job = job_art(req["name"], req.get("step", "guide"), req.get("strength"))
                 elif kind == "export":
@@ -1250,9 +1283,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, upgrade_design(json.loads(f.read_text()), my_config()))
             if not rest and method == "PUT":
                 meta = self.json_body()
-                if not (d / "labels.bin").exists() and not meta.get("_new"):
-                    raise ApiError(404, "unknown design")
-                meta.pop("_new", None)
+                if not (d / "labels.bin").exists():     # designs are only made by import, generate and copy
+                    raise ApiError(404, f"unknown design: {p[1]}")
+                not_being_built(p[1])
                 meta["name"] = p[1]
                 meta["modified"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 d.mkdir(parents=True, exist_ok=True)
@@ -1264,6 +1297,7 @@ class Handler(BaseHTTPRequestHandler):
             if rest == ["labels"] and method == "GET":
                 return self.send_file(d / "labels.bin", "application/octet-stream")
             if rest == ["labels"] and method == "PUT":
+                not_being_built(p[1])
                 raw = self.body()
                 meta = json.loads((d / "design.json").read_text())
                 if len(raw) != meta["raster"]["W"] * meta["raster"]["H"] * 2:
@@ -1277,6 +1311,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_file(d / rest[0], "image/jpeg")
             if rest == ["copy"] and method == "POST":
                 to = design_dir(self.json_body()["to"])
+                if not (d / "design.json").is_file():
+                    raise ApiError(404, f"unknown design: {p[1]}")
                 if to.exists():
                     raise ApiError(409, f"design '{to.name}' already exists")
                 shutil.copytree(d, to, ignore=shutil.ignore_patterns("export"))
@@ -1286,9 +1322,14 @@ class Handler(BaseHTTPRequestHandler):
                 if (d / "export").resolve() not in target.parents:
                     raise ApiError(403, "forbidden")
                 return self.send_file(target, download="download" in url.query)
-            if rest[:1] == ["samples"] and method == "GET":
-                meta = json.loads((d / "design.json").read_text())
-                return self.send_file(WEB / meta["run_dir"] / "art/samples" / rest[1])
+            if rest[:1] == ["samples"] and len(rest) == 2 and method == "GET":
+                run = run_dir_of(json.loads((d / "design.json").read_text()))
+                if not run or not SAMPLE_RE.match(rest[1]):
+                    raise ApiError(404, "no such sample")
+                target = inside(run / "art/samples" / rest[1], run / "art/samples")
+                if not target:
+                    raise ApiError(403, "forbidden")
+                return self.send_file(target)
         raise ApiError(404, f"no route for {method} /api/{'/'.join(p)}")
 
 

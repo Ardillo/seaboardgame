@@ -44,6 +44,24 @@ Undo/redo covers every edit (Ctrl+Z / Ctrl+Y). Designs autosave every minute (Fi
 To keep fields off the map, set a **Frame** (menubar) and generate new tiles: the map
 shrinks to leave a border, and the export draws the frame and fields around the map.
 
+## Tests
+
+Run from this folder:
+
+```bash
+../.venv/bin/python tests/reference.py         # same board as the saved references (about 3 min)
+../.venv/bin/python tests/reference.py --full  # also the real board settings (minutes more)
+../.venv/bin/python tests/server_safety.py     # no reading or overwriting what a request should not (seconds)
+```
+
+`tests/reference.py` runs the pipeline and the tool on fixed settings (`tests/reference_config.yaml`) and compares
+fingerprints of every output with `tests/reference.json`. Only after a change that should change the board, save
+new ones with `--update`. The fingerprints depend on the package versions in `requirements.txt`.
+`tests/server_safety.py` imports `../out` into a temporary folder; both tests need the Natural Earth data
+(`--data` to point elsewhere) and leave designs, settings and `../out` alone.
+
+Importing or generating into the name of an existing design asks before replacing it.
+
 ## Check against the pipeline
 
 Run this after every change in `../src`. It imports the main board, exports it untouched and fails on any

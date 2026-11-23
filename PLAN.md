@@ -62,7 +62,7 @@ application. "How it is built" above describes the code as it is until these PRs
 | First start | `run.sh` and the tool make everything ready by themselves: Python packages, system check, map data, map images |
 | Platform | Linux only; Windows support is dropped |
 | Target machine | One CPU core, so the speed-up must not rely on parallel work |
-| Relaxation steps | Open: keep `tiles.lloyd_iterations` at 40 (same board as now, recommended) or lower it to 20 (see Findings) |
+| Relaxation steps | `tiles.lloyd_iterations` stays at 40 (decided 2026-11-22): the faster code must give exactly the same board |
 
 ### Target layout
 
@@ -93,7 +93,7 @@ data/                    downloaded map data, not in git
 
 | PR | What | Done when |
 |---|---|---|
-| 1. Safety | Save the current outputs as reference tests. Fix the three server bugs (Findings) | tests pass; the three bugs cannot be reproduced |
+| 1. Safety ✓ | Reference tests (`webtool/tests/reference.py`) and a server safety test (`webtool/tests/server_safety.py`); the three server bugs fixed | tests pass; the three bugs cannot be reproduced |
 | 2. Speed | Single-core rewrite of the tile search (Findings) | byte-identical board on the reference settings; your board in about 100 s or less on the target machine |
 | 3. First start | Check the map data at start and download what is missing in the background, with progress and Retry. A folder only counts when it is complete. Editing and export keep working meanwhile; Generate and the map image wait | works from an empty, a half-downloaded and an offline start |
 | 4. One app, no SDXL | One composer and one settings source instead of the pipeline scripts plus the webtool. SDXL removed. "Reset to main" becomes "Reset to defaults" | export identical to today's for the same design |
@@ -138,11 +138,16 @@ no other session should edit `src/` at the same time.
 - The committed map image of a design is byte-identical to a freshly built one, so it can be rebuilt after the
   download and leave git.
 
-**Server bugs (to fix in PR 1)**
-1. The samples route serves any file the server can read, without a login.
-2. Importing or generating under an existing design name overwrites that design without asking (import confirmed,
-   generate uses the same code).
-3. `..` is accepted as a design name and points at the `webtool/` folder.
+**Server bugs (fixed in PR 1)**
+1. The samples route served any file the server could read, without a login. Now it only serves sample sheets
+   from the design's own run folder under `work/runs/`.
+2. Importing or generating under an existing design name overwrote that design without asking. Now the server
+   refuses (409) unless the page asks for a replace, and the page asks first. Saving cannot create a design.
+3. `..`, `.` and names starting with a dot were accepted as design names and pointed outside `designs/`.
+   Now a name has to start with a letter or digit.
+
+`webtool/tests/server_safety.py` checks all of this (37 checks, including no saving into a design while a job
+replaces it); the code from before PR 1 fails the checks for all three bugs.
 
 **SDXL: everything that goes**
 - `make_art.py` except the atlas-map step, which moves into Generate.
@@ -173,7 +178,7 @@ no other session should edit `src/` at the same time.
 - [x] 2026-11-22: dotted pawn circles removed, Suez drawn over water, open seas without room for a pawn merged (no tile-less patches)
 - [x] 2026-11-22: license, credit, relative paths, setup docs tested in a fresh clone, Dutch ocean names
 - [x] 2026-11-22: the webtool edits the around-the-world arrows (drag, hide, close, size, colour)
-- [ ] Restructuring to webtool only: PRs 1–6 below
+- [ ] Restructuring to webtool only: PRs 1–6 above (PR 1 done)
 - [ ] Print proof: print part of the board at 100% and check the pawn size against the smallest tiles
 
 ## Current result (2026-11-22: 107 tiles, 29 seas, 12 mm pawn)
