@@ -1,0 +1,40 @@
+{
+ "cases": {
+  "quick": {
+   "tiles/labels.npy": "e97848cdf0e6f11174e4",
+   "tiles/tiles.json": "7fad052420fa501e9aa8",
+   "tiles/borders.json": "11b88745a78793fc6845",
+   "tiles/report.txt": "06de3ae44aa3e84c1a43",
+   "art/guide.png": "23e2eac513727b7d40f9",
+   "board/board.svg": "b5df83d771bbef6955ad",
+   "design.json": "51602deb2575430c253c",
+   "labels.bin": "161c23ce7685a6b7e970",
+   "water.bin": "a6817146ec64c16e89d2",
+   "export tiles.json": "be50a518a4d69a94db8f",
+   "export borders.json": "63e1ce21ac9ccd1bbaed",
+   "export board.svg": "7a89d8de0740a1af6e7b"
+  },
+  "no-wiggle": {
+   "tiles/labels.npy": "d5a9f610317e7e2e7eee",
+   "tiles/tiles.json": "7be2766e853fe18ae00b",
+   "tiles/borders.json": "fa09ca75987287302d68",
+   "tiles/report.txt": "ee11d1bcfb7b86a80d79"
+  },
+  "board": {
+   "tiles/labels.npy": "a3a33a30644af7b1ce44",
+   "tiles/tiles.json": "fec769466a9d0a94fa2d",
+   "tiles/borders.json": "4a12c7d454fe9e6d3157",
+   "tiles/report.txt": "498f536bcd47e8b27b51"
+  }
+ },
+ "versions": {
+  "numpy": "2.5.5",
+  "scipy": "1.18.1",
+  "numba": "0.68.1",
+  "pillow": "13.0.0",
+  "cairosvg": "2.9.1",
+  "pyshp": "3.1.9",
+  "PyYAML": "6.0.3"
+ },
+ "note": "made by tests/reference.py --update; fingerprints are the first 20 hex digits of SHA-256"
+}

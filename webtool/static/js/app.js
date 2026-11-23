@@ -29,7 +29,11 @@ async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   const ct = res.headers.get("content-type") || "";
   const body = ct.includes("json") ? await res.json() : await res.arrayBuffer();
-  if (!res.ok) throw new Error((body && body.error) || res.statusText);
+  if (!res.ok) {
+    const err = new Error((body && body.error) || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
   return body;
 }
 const putJSON = (p, o) => api(p, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(o) });
@@ -214,6 +218,10 @@ function updateArt(force) {
 async function saveDesign(quiet) {
   const d = app.design;
   if (!d) return;
+  if (app.replacing === d.meta.name) {      // a job is replacing this design: saving would undo that
+    if (!quiet) toast(`Not saved: '${d.meta.name}' is being replaced (see the Log tab)`, true);
+    return;
+  }
   if (!d.tx) d.ensureAnalysis(app.cfg);     // pawn spots of the last edit
   const version = d.version;
   const enc = encodeURIComponent(d.meta.name);
@@ -323,13 +331,31 @@ function select(kind, value, add) {
 }
 
 // ================================================================ jobs
+async function launchJob(req) {
+  const { job } = await postJSON("/api/jobs", req);
+  app.jobLog = [];
+  watchJob(job);
+  setTab("log");
+}
+
 async function startJob(req) {
+  try { await launchJob(req); return true; } catch (e) { toast(e.message, true); return false; }
+}
+
+// generate / import into a design name; an existing design is only replaced after asking
+async function startDesignJob(req) {
   try {
-    const { job } = await postJSON("/api/jobs", req);
-    app.jobLog = [];
-    watchJob(job);
-    setTab("log");
-  } catch (e) { toast(e.message, true); }
+    await launchJob(req);
+    return;
+  } catch (e) {
+    if (e.status !== 409 || !/already exists/.test(e.message)) { toast(e.message, true); return; }
+  }
+  const open = app.design?.meta.name === req.name;
+  if (!(await confirmBox("Replace design", `A design named '${req.name}' already exists. Replace it?` +
+    (open ? " It is the design you have open: its tiles and all edits are replaced." : " Its tiles and all edits are replaced.") +
+    " This cannot be undone.", "Replace", true))) return;
+  if (open) app.replacing = req.name;       // no saving over the new design while the job runs
+  if (!(await startJob({ ...req, replace: true }))) app.replacing = null;
 }
 
 function watchJob(job) {
@@ -351,7 +377,7 @@ function watchJob(job) {
       pill.className = j.status === "done" ? "" : "error";
       setTimeout(() => { if (app.job === j && j.status === "done") pill.hidden = true; }, 6000);
       if (j.status === "done") jobDone(j);
-      else toast(`${j.title}: ${j.error || j.status}`, true);
+      else { app.replacing = null; toast(`${j.title}: ${j.error || j.status}`, true); }
     } catch (e) { setTimeout(tick, 2000); }
   };
   tick();
@@ -360,7 +386,10 @@ function watchJob(job) {
 async function jobDone(j) {
   const r = j.result || {};
   if (j.kind === "generate" || j.kind === "import") {
-    if (app.design?.dirty) await saveDesign(true).catch(() => {});
+    const replaced = app.replacing === r.design && app.design?.meta.name === r.design;
+    app.replacing = null;
+    if (replaced) app.design.dirty = false;         // its edits were replaced on purpose: don't ask about them
+    else if (app.design?.dirty) await saveDesign(true).catch(() => {});
     await openDesign(r.design);
   } else if (j.kind === "art") {
     if (app.design && r.design === app.design.meta.name) {
@@ -404,7 +433,7 @@ async function generateDialog() {
   ], [{ label: "Cancel", value: "cancel" }, { label: "Generate", value: "ok", primary: true }]);
   if (r !== "ok") return;
   if (app.design?.dirty) await saveDesign(true).catch(() => {});
-  startJob({ kind: "generate", name: name.value.trim(), guide: guide.checked });
+  startDesignJob({ kind: "generate", name: name.value.trim(), guide: guide.checked });
 }
 
 async function importMain() {
@@ -412,7 +441,7 @@ async function importMain() {
     `Copies the current tiles from ${app.paths?.main_out || "../out"} into a new design (read-only for the main project).`, "main-" + stamp(), "Import");
   if (!name) return;
   if (app.design?.dirty) await saveDesign(true).catch(() => {});
-  startJob({ kind: "import", name });
+  startDesignJob({ kind: "import", name });
 }
 
 async function exportDialog() {
