@@ -401,8 +401,8 @@ function watchData(data) {
     pill.classList.toggle("error", d.state === "error");
     if (d.state === "downloading") {
       pill.textContent = `Map data · ${d.total ? Math.floor((100 * d.done) / d.total) + " %" : mb(d.done) + " MB"}` +
-        (d.missing.length > 1 ? ` · ${d.missing.length} parts left` : "");
-      pill.title = `Downloading ${d.current} into ${d.dir}. Editing and export work meanwhile; Generate and the map image wait for it.`;
+        (d.parts > 1 ? ` · part ${d.parts - d.missing.length + 1} of ${d.parts}` : "");
+      pill.title = `Downloading ${d.current} into ${d.dir}. Editing and export work meanwhile; Generate, Import and the map image wait for it.`;
     } else if (d.state === "error") {
       pill.textContent = "Map data missing · Retry";
       pill.title = `Download failed: ${d.error}. Click to try again.`;

@@ -127,7 +127,7 @@ def download(data, name, progress=None, cancelled=None):
                 if progress:
                     progress(name, done, total)
     if total is not None and done < total:
-        raise OSError(f"{name}: connection closed after {done} of {total} bytes")
+        raise OSError(f"connection closed after {done} of {total} bytes")
     unpack = work / name
     shutil.rmtree(unpack, ignore_errors=True)
     try:
@@ -135,11 +135,11 @@ def download(data, name, progress=None, cancelled=None):
             z.extractall(unpack)
     except zipfile.BadZipFile:
         part.unlink()
-        raise OSError(f"{name}: the download is not a valid zip file; try again")
+        raise OSError("the download is not a valid zip file; try again")
     if not all(file_whole(unpack / f) for f in DATASETS[name][1]):
         shutil.rmtree(unpack, ignore_errors=True)
         part.unlink()
-        raise OSError(f"{name}: the download does not hold the expected files")
+        raise OSError("the download does not hold the expected files")
     (unpack / MARK).write_text(url + "\n")
     target = data / name
     if target.exists():         # an incomplete older folder

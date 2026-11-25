@@ -162,7 +162,10 @@ no other session should edit `src/` at the same time.
   - `tests/first_start.py` (21 checks, 1 minute) covers the empty, half-downloaded and offline starts with a local
     stand-in for Natural Earth. Also checked by hand: a real download from Natural Earth gives files identical to
     yours, and a real resume after 30 MB. `server_safety.py` and `reference.py` still pass.
-  - Not checked: the pill in a browser (there is no browser on this machine).
+  - Checked in a browser (headless Chromium, with a slow stand-in download): the pill counts up
+    ("Map data · 43 % · part 1 of 4"), turns red with "Map data missing · Retry" and a message when the connection
+    drops, and disappears after Retry once the data is complete. The design stays open and usable throughout;
+    no errors in the browser console.
 
 **Server bugs (fixed in PR 1)**
 1. The samples route served any file the server could read, without a login. Now it only serves sample sheets

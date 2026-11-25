@@ -272,7 +272,7 @@ class DataFetch:
         self.thread, self.dir = None, None
         self.state, self.error = "checking", None       # checking | downloading | ready | error
         self.current, self.done, self.total = None, 0, None
-        self.missing = []
+        self.missing, self.parts = [], 0
 
     def start(self, d=None):
         """Check the folder and download what is missing, unless that is already running."""
@@ -288,6 +288,7 @@ class DataFetch:
     def run(self, d):
         try:
             self.missing = fetch_data.missing(d)
+            self.parts = len(self.missing)
             for name in list(self.missing):
                 self.state, self.current, self.done, self.total = "downloading", name, 0, None
                 fetch_data.download(d, name, self.progress)
@@ -307,7 +308,7 @@ class DataFetch:
 
     def as_dict(self):
         return {"state": self.state, "error": self.error, "current": self.current, "done": self.done,
-                "total": self.total, "missing": list(self.missing), "dir": str(self.dir) if self.dir else None}
+                "total": self.total, "missing": list(self.missing), "parts": self.parts, "dir": str(self.dir) if self.dir else None}
 
 
 DATA = DataFetch()
