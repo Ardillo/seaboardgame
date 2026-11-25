@@ -370,7 +370,7 @@ function watchJob(job) {
       app.job = j;
       const secs = Math.round(((j.ended || Date.now() / 1000) - j.started));
       pill.textContent = `${j.title} · ${j.status === "running" ? secs + " s" : j.status}`;
-      if (app.tab === "log") renderLog();
+      if (app.tab === "log") refreshSidebar();
       if (j.status === "running") { setTimeout(tick, 800); return; }
       pill.className = j.status === "done" ? "" : "error";
       setTimeout(() => { if (app.job === j && j.status === "done") pill.hidden = true; }, 6000);
