@@ -27,7 +27,7 @@ All commands below run from `src/`. In a new shell, repeat `cd src` and the `PY=
 ## Build the board
 
 ```bash
-$PY make_tiles.py       # 1. tiles, sea names, passages (about 5 min, longer for a bigger board)
+$PY make_tiles.py       # 1. tiles, sea names, passages (about 1–2 min, longer for a bigger board)
 $PY make_art.py guide   # 2. atlas map image (seconds)
 $PY compose_board.py    # 3. board (about 30 s)
 ```

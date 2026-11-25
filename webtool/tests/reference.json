@@ -25,6 +25,54 @@
    "tiles/tiles.json": "fec769466a9d0a94fa2d",
    "tiles/borders.json": "4a12c7d454fe9e6d3157",
    "tiles/report.txt": "498f536bcd47e8b27b51"
+  },
+  "mix": {
+   "tiles/labels.npy": "2086d4453b6c43273583",
+   "tiles/tiles.json": "59c414410a7efa657c21",
+   "tiles/borders.json": "80de3c7c6f6986826595",
+   "tiles/report.txt": "6ac1da30421c370ef566"
+  },
+  "strong-wiggle": {
+   "tiles/labels.npy": "e5ae5aa29115e1aad0c6",
+   "tiles/tiles.json": "b8e41522d292804152bb",
+   "tiles/borders.json": "b916ac9e9760693742b9",
+   "tiles/report.txt": "e57834f38ea653f7a0fe"
+  },
+  "many-tiles": {
+   "tiles/labels.npy": "24a04a5536a9a9dfe5dd",
+   "tiles/tiles.json": "da7a7cf49e0207ce61bb",
+   "tiles/borders.json": "c186a2c1e7d3b34fbb2b",
+   "tiles/report.txt": "e5c72a1f305a7c999b13"
+  },
+  "equirectangular": {
+   "tiles/labels.npy": "a7830c8bba0fd77eb3c0",
+   "tiles/tiles.json": "41b9f0d40ac5a84031c8",
+   "tiles/borders.json": "5499760d38cb1493603e",
+   "tiles/report.txt": "968a3f660adad100c13f"
+  },
+  "coarse": {
+   "tiles/labels.npy": "2a099d21ffaafb14f7b0",
+   "tiles/tiles.json": "5b19dc59d746e24c3d7f",
+   "tiles/borders.json": "bf993b3d64809a4059e9",
+   "tiles/report.txt": "746ae5820c576b0527ff"
+  },
+  "coarse-straight": {
+   "tiles/labels.npy": "4e29e636d00ba84d4102",
+   "tiles/tiles.json": "83c02275790dedae56f4",
+   "tiles/borders.json": "b1956a287dcbfb1a0f85",
+   "tiles/report.txt": "dd25475fc61fcdae7ba2"
+  },
+  "small-pawn": {
+   "tiles/labels.npy": "6e9cc8bb2cbd446f20fc",
+   "tiles/tiles.json": "2ff146be81e586e92d7e",
+   "tiles/borders.json": "0a73c12a8c85637c3616",
+   "tiles/report.txt": "a7afd8ea787a76d201cf"
+  },
+  "big-pawn": {
+   "tiles/labels.npy": "238c95a92a506f51f94e",
+   "tiles/tiles.json": "a5514ac536e833b42f3a",
+   "tiles/borders.json": "aeac0c2dac53685f6ffc",
+   "tiles/report.txt": "e6cd413acfa033acff59"
   }
  },
  "versions": {

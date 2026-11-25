@@ -49,7 +49,7 @@ shrinks to leave a border, and the export draws the frame and fields around the 
 Run from this folder:
 
 ```bash
-../.venv/bin/python tests/reference.py         # same board as the saved references (about 3 min)
+../.venv/bin/python tests/reference.py         # same board as the saved references, 10 cases (about 3 min)
 ../.venv/bin/python tests/reference.py --full  # also the real board settings (minutes more)
 ../.venv/bin/python tests/server_safety.py     # no reading or overwriting what a request should not; Cancel works (seconds)
 ```
