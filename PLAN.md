@@ -47,7 +47,7 @@ Later stage (not decided yet): a physical or digital co-op board game.
 4. **Editor**, `webtool/`
    - Edits tiles, names, passages, fields and the day track by hand in the browser (`webtool/README.md`).
 
-## Restructuring: webtool only (planned 2026-11-22, not started)
+## Restructuring: webtool only (planned 2026-11-22; PRs 1 and 2 done)
 
 The project began as command-line scripts (`src/`) with the webtool (`webtool/`) added later. It becomes one web
 application. "How it is built" above describes the code as it is until these PRs are merged.
@@ -94,7 +94,7 @@ data/                    downloaded map data, not in git
 | PR | What | Done when |
 |---|---|---|
 | 1. Safety ✓ | Reference tests (`webtool/tests/reference.py`) and a server safety test (`webtool/tests/server_safety.py`); the three server bugs fixed | tests pass; the three bugs cannot be reproduced |
-| 2. Speed ✓ | Single-core rewrite of the tile search (Findings; the prototype, its diff and checks are in `PR_2_speed_prototype.md`) | byte-identical board on the reference settings; your board in about 100 s or less on the target machine |
+| 2. Speed ✓ | Single-core rewrite of the tile search (Findings; the prototype, its diff and checks are in `PR_2_speed_prototype.md`) | byte-identical board on the reference settings; your board in about 100 s or less on the target machine (71 s here on one core; still to be timed on the target machine) |
 | 3. First start | Check the map data at start and download what is missing in the background, with progress and Retry. A folder only counts when it is complete. Editing and export keep working meanwhile; Generate and the map image wait | works from an empty, a half-downloaded and an offline start |
 | 4. One app, no SDXL | One composer and one settings source instead of the pipeline scripts plus the webtool. SDXL removed. "Reset to main" becomes "Reset to defaults" | export identical to today's for the same design |
 | 5. Move | New layout; old designs are upgraded when opened | your design opens and exports the same |
@@ -115,9 +115,17 @@ no other session should edit `src/` at the same time.
   byte-identical result** on 10 different settings, including no border wiggle (many exact ties). Peak memory
   stays about 750 MB, so the target machine needs about 1 GB free.
 - The remaining 76 s is still 70% search (0.22 s per pass). A further exact gain may be possible; not measured.
-- **PR 2 (2026-11-25)** built the prototype into `src/make_tiles.py`, plus the clean-ups listed in
-  `PR_2_speed_prototype.md`. The real board: **71 s on one core**, byte-identical. `tests/reference.py` now also
-  checks the other eight settings of the prototype comparison; their references were made with the old code.
+- **PR 2 done (2026-11-25).** The prototype is built into `src/make_tiles.py`, with the clean-ups from
+  `PR_2_speed_prototype.md`: `heapq` removed; the "every tile one piece" pass works on a box per tile that grows
+  exactly when the tile takes over a fragment (no whole-map compare per tile, no skipped tiles). Results, pinned
+  to one core on this machine:
+  - the real board (`tests/reference.py --full`): tiles in **71 s** (was 318 s), byte-identical;
+  - `tests/reference.py` now has 10 cases: `quick`, `no-wiggle` and the other eight settings of the prototype
+    comparison (projection, resolution, pawn 8 and 16 mm, 50/100/150 tiles, seeds, centre longitude, wiggle 0
+    and 0.9). The new references were made with the old code from `main`; all 10 match. The run takes 3 min
+    (the old code took 7 min for the same cases);
+  - `tests/server_safety.py`: all safe, on the real board in `out/`.
+  - Still open: time Generate on the target machine (aim: about 100 s or less).
 - Fewer rounds, steps or pixels, measured on 3 seeds (on top of the rewrite, one core):
 
 | Setting | Time | Effect |
