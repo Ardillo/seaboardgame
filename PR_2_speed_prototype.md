@@ -1,7 +1,8 @@
 # PR 2: speed prototype for Generate (single core)
 
-Status: **prototype only**, made and measured on 2026-11-22 on a throwaway copy of `main` (`6704b7b`).
-Nothing in `src/` has changed yet. PR 2 in `PLAN.md` builds this properly. This file records exactly what the
+Status: prototype made and measured on 2026-11-22 on a throwaway copy of `main` (`6704b7b`).
+**Built into `src/make_tiles.py` by PR 2 (2026-11-25)**, with the notes under "Notes for the real PR" done
+(except the further search gain, not tried). This file records exactly what the
 prototype changed, why the board stays the same, and how that was checked, so the PR can repeat it.
 
 ## Result

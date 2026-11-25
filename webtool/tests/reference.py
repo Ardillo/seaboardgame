@@ -12,6 +12,8 @@ tests/reference.json. It works in a temporary folder and leaves designs, setting
 Cases:
   quick        5 tiles steps, 1 refine round: tiles, atlas map, pipeline board, web tool import + export
   no-wiggle    as quick without border noise: many exact ties in the tile search
+  mix ...      eight more tile-only cases on unusual settings (MORE below): projection, resolution, pawn size,
+               tile count, seed, centre longitude, wiggle
   board        the reference settings unchanged (only with --full)
 
 The fingerprints depend on the library versions in requirements.txt. When a check fails, the versions used
@@ -37,6 +39,19 @@ CONFIG = TESTS / "reference_config.yaml"
 REFERENCE = TESTS / "reference.json"
 QUICK = ["tiles.lloyd_iterations=4", "tiles.refine_rounds=1"]
 CASES = {"quick": QUICK, "no-wiggle": QUICK + ["tiles.border_noise=0"], "board": []}
+# tile search only, on settings far from the defaults (the comparisons made for the PR 2 speed-up)
+MORE = {
+    "mix": ["tiles.lloyd_iterations=4", "tiles.refine_rounds=2", "tiles.count=100", "tiles.random_seed=11",
+            "map.center_lon=150"],
+    "strong-wiggle": QUICK + ["tiles.border_noise=0.9"],
+    "many-tiles": QUICK + ["tiles.random_seed=99", "tiles.count=150"],
+    "equirectangular": QUICK + ["map.projection=equirectangular", "map.lat_north=80", "map.lat_south=-78"],
+    "coarse": QUICK + ["tiles.raster_px_per_mm=2"],
+    "coarse-straight": QUICK + ["tiles.raster_px_per_mm=2", "tiles.sea_border_wiggle_mm=0", "tiles.border_noise=0"],
+    "small-pawn": QUICK + ["tiles.count=50", "tiles.pawn_diameter_mm=8"],
+    "big-pawn": QUICK + ["tiles.pawn_diameter_mm=16"],
+}
+CASES.update(MORE)
 TILE_FILES = ["tiles/labels.npy", "tiles/tiles.json", "tiles/borders.json", "tiles/report.txt"]
 PACKAGES = ["numpy", "scipy", "numba", "pillow", "cairosvg", "pyshp", "PyYAML"]
 
@@ -94,7 +109,7 @@ def main():
     if not (data / "ne_50m_land").is_dir():
         sys.exit(f"no Natural Earth data in {data}: start the web tool once, or pass --data")
     saved = json.loads(REFERENCE.read_text()) if REFERENCE.exists() else {"cases": {}}
-    names = ["quick", "no-wiggle"] + (["board"] if args.full else [])
+    names = ["quick", "no-wiggle", *MORE] + (["board"] if args.full else [])
     versions = {p: importlib.metadata.version(p) for p in PACKAGES}
     tmp = Path(tempfile.mkdtemp(prefix="seaboard-reference-"))
     results = {}
