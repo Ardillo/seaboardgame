@@ -49,7 +49,7 @@ function store(key, val) {
 
 // ================================================================ state
 const app = {
-  cfg: null, mainCfg: null, comments: {}, design: null, view: null,
+  cfg: null, defaults: null, comments: {}, design: null, view: null,
   tool: "select",
   sel: { tiles: new Set(), field: null, passage: null, sea: null, arrow: null },
   // editing aids, screen only (what the board shows is in design.look and compose.*)
@@ -76,7 +76,7 @@ const TOOLS = [
 ];
 
 const SECTION_TITLES = { board: "Board", map: "Map", tiles: "Tiles", seas: "Seas", passages: "Passages",
-  art: "Art", compose: "Compose", day_track: "Day track", webtool: "Frame" };
+  art: "Map image", compose: "Compose", day_track: "Day track", webtool: "Frame" };
 const EDIT_KEYS = ["tiles.border_noise", "tiles.noise_scale_mm"];
 const LIVE_KEYS = ["tiles.pawn_diameter_mm", "tiles.min_wrap_edge_mm",
   "webtool.frame_color", "webtool.snap_mm", "day_track.panel_color"];
@@ -127,17 +127,15 @@ async function boot() {
   buildTabs();
   bindCanvas();
   bindKeys();
-  $("#empty-import").onclick = () => importMain();
   $("#empty-generate").onclick = () => generateDialog();
   $("#empty-open").onclick = () => openDialog();
   $("#regen-flag").onclick = () => generateDialog();
   $("#jobpill").onclick = () => setTab("log");
   try {
     const st = await api("/api/state");
-    app.cfg = st.config; app.mainCfg = st.main_config; app.comments = st.comments; app.paths = st.paths; app.text = st.board_text;
+    app.cfg = st.config; app.defaults = st.defaults; app.comments = st.comments; app.paths = st.paths; app.text = st.board_text;
     app.lookDefault = st.look_default; app.lookBefore = st.look_before;
-    app.mainBoard = st.main_board;
-    if (!app.text || app.lookDefault?.arrow_size === undefined) {        // the page is new but the Python server still runs the old code
+    if (!app.text || app.lookDefault?.arrow_size === undefined || !app.defaults) {        // the page is new but the Python server still runs the old code
       toast("The tool was updated: restart the server (run.sh), then reload this page.", true);
       return;
     }
@@ -208,8 +206,7 @@ async function updateFont() {
 function updateArt(force) {
   const d = app.design;
   if (!d) return;
-  const art = app.cfg.compose.map_art;
-  const file = art === "none" ? null : art === "art" && d.meta.has_painting ? "painting" : d.meta.has_art ? "art" : null;
+  const file = app.cfg.compose.map_art && d.meta.has_art ? "art" : null;
   const key = `${d.meta.name}/${file}`;
   if (!force && key === app.artKey) return;
   app.artKey = key;
@@ -343,7 +340,7 @@ async function startJob(req) {
   try { await launchJob(req); return true; } catch (e) { toast(e.message, true); return false; }
 }
 
-// generate / import into a design name; an existing design is only replaced after asking
+// generate into a design name; an existing design is only replaced after asking
 async function startDesignJob(req) {
   try {
     await launchJob(req);
@@ -373,7 +370,7 @@ function watchJob(job) {
       app.job = j;
       const secs = Math.round(((j.ended || Date.now() / 1000) - j.started));
       pill.textContent = `${j.title} · ${j.status === "running" ? secs + " s" : j.status}`;
-      if (app.tab === "log") renderLog();
+      if (app.tab === "log") refreshSidebar();
       if (j.status === "running") { setTimeout(tick, 800); return; }
       pill.className = j.status === "done" ? "" : "error";
       setTimeout(() => { if (app.job === j && j.status === "done") pill.hidden = true; }, 6000);
@@ -402,7 +399,7 @@ function watchData(data) {
     if (d.state === "downloading") {
       pill.textContent = `Map data · ${d.total ? Math.floor((100 * d.done) / d.total) + " %" : mb(d.done) + " MB"}` +
         (d.parts > 1 ? ` · part ${d.parts - d.missing.length + 1} of ${d.parts}` : "");
-      pill.title = `Downloading ${d.current} into ${d.dir}. Editing and export work meanwhile; Generate, Import and the map image wait for it.`;
+      pill.title = `Downloading ${d.current} into ${d.dir}. Editing and export work meanwhile; Generate and the map image wait for it.`;
     } else if (d.state === "error") {
       pill.textContent = "Map data missing · Retry";
       pill.title = `Download failed: ${d.error}. Click to try again.`;
@@ -427,7 +424,7 @@ function watchData(data) {
 
 async function jobDone(j) {
   const r = j.result || {};
-  if (j.kind === "generate" || j.kind === "import") {
+  if (j.kind === "generate") {
     const replaced = app.replacing === r.design && app.design?.meta.name === r.design;
     app.replacing = null;
     if (replaced) app.design.dirty = false;         // its edits were replaced on purpose: don't ask about them
@@ -435,22 +432,12 @@ async function jobDone(j) {
     await openDesign(r.design);
   } else if (j.kind === "art") {
     if (app.design && r.design === app.design.meta.name) {
-      if (r.step === "samples") showSamples(r);
-      else {
-        const full = r.step === "full";
-        app.design.meta[full ? "has_painting" : "has_art"] = true;
-        app.design.meta.run_dir = r.run_dir;
-        updateArt(true);
-        toast(full && app.cfg.compose.map_art !== "art" ? "Painting ready: set Compose > map_art to art to use it" : "New art loaded");
-      }
+      app.design.meta.has_art = true;
+      app.design.meta.run_dir = r.run_dir;
+      updateArt(true);
+      toast("New map image loaded");
     }
   } else if (j.kind === "export") showExport(r);
-}
-
-function showSamples(r) {
-  const enc = encodeURIComponent(r.design);
-  dialog("SDXL style samples", [h("p", {}, "Each sheet: the guide map, then the strengths from left to right. Set the strength under Art in the menubar."),
-    ...r.samples.map((s) => h("div", { class: "preview" }, h("p", {}, s), h("img", { src: `/api/designs/${enc}/samples/${s}?v=${Date.now()}` })))]);
 }
 
 function showExport(r) {
@@ -458,7 +445,7 @@ function showExport(r) {
   const base = `/api/designs/${enc}/export/`;
   dialog(`Export of ${r.design}`, [
     h("div", { class: "preview" }, h("img", { src: base + "board_preview.jpg?v=" + r.stamp })),
-    h("p", {}, "Composed with the main project's compose_board.py, plus your View settings, frame and fields. Files in ", h("code", {}, r.dir)),
+    h("p", {}, "Composed with your settings, View choices, frame and fields. Files in ", h("code", {}, r.dir)),
     h("div", { class: "row" }, r.files.map((f) => h("a", { href: base + f + "?download=1", class: "chip", download: f.split("/").pop() }, f))),
   ]);
 }
@@ -467,23 +454,15 @@ async function generateDialog() {
   const name = h("input", { type: "text", value: "gen-" + stamp() });
   const guide = h("input", { type: "checkbox", checked: true });
   const fr = app.cfg.webtool.frame;
-  const r = await dialog("Generate tiles from the config", [
-    h("p", {}, "Runs the main project's make_tiles.py with the settings from the menubar (about a minute) and opens the result as a new design. Your current design stays as it is."),
+  const r = await dialog("Generate new tiles", [
+    h("p", {}, "Makes new tiles with the settings from the menubar (one to two minutes) and opens the result as a new design. Your current design stays as it is."),
     h("p", { class: "muted" }, `Board ${app.cfg.board.width_mm}×${app.cfg.board.height_mm} mm, frame ${fr.top}/${fr.right}/${fr.bottom}/${fr.left} mm, ${app.cfg.tiles.count} tiles, ${app.cfg.seas.biggest} biggest seas.`),
     h("div", { class: "dlgrow" }, h("label", {}, "New design name"), name),
-    h("div", { class: "dlgrow" }, h("label", {}, "Real-colour guide map"), h("label", {}, guide, " build it too (a few seconds)")),
+    h("div", { class: "dlgrow" }, h("label", {}, "Map image"), h("label", {}, guide, " make the atlas map too (a few seconds)")),
   ], [{ label: "Cancel", value: "cancel" }, { label: "Generate", value: "ok", primary: true }]);
   if (r !== "ok") return;
   if (app.design?.dirty) await saveDesign(true).catch(() => {});
   startDesignJob({ kind: "generate", name: name.value.trim(), guide: guide.checked });
-}
-
-async function importMain() {
-  const name = await promptBox("Import the main project's board",
-    `Copies the current tiles from ${app.paths?.main_out || "../out"} into a new design (read-only for the main project).`, "main-" + stamp(), "Import");
-  if (!name) return;
-  if (app.design?.dirty) await saveDesign(true).catch(() => {});
-  startDesignJob({ kind: "import", name });
 }
 
 async function exportDialog() {
@@ -491,7 +470,7 @@ async function exportDialog() {
   const png = h("input", { type: "checkbox" });
   const r = await dialog("Export the board", [
     $("#regen-flag").hidden ? null : h("p", { class: "warn" }, "Some changed settings (marked 'regenerate') need new tiles. This export keeps the tiles you see."),
-    h("p", {}, "Saves the design, then builds board.svg, board.pdf and a preview with the main project's compose_board.py, adds the frame and the fields, and writes tiles.json (with neighbours, passages and fields) for later use in the game."),
+    h("p", {}, "Saves the design, then builds board.svg, board.pdf and a preview with the frame and the fields, and writes tiles.json (with neighbours, passages and fields) for later use in the game."),
     h("div", { class: "dlgrow" }, h("label", {}, "Print PNG"), h("label", {}, png, ` also board.png at ${app.cfg.compose.print_dpi} dpi (slow)`)),
   ].filter(Boolean), [{ label: "Cancel", value: "cancel" }, { label: "Export", value: "ok", primary: true }]);
   if (r !== "ok") return;
@@ -502,12 +481,8 @@ async function exportDialog() {
   startJob({ kind: "export", name: app.design.meta.name, png: png.checked });
 }
 
-async function artJob(step) {
-  if (!app.design) return;
-  if (step === "full" && !(await confirmBox("Paint the full map with SDXL",
-    "This repaints the whole map in overlapping 1024 px pieces on the GPU (roughly 15–20 minutes). The main project may also be using the GPU. Continue?", "Start"))) return;
-  if (step === "samples" && !(await confirmBox("SDXL style samples", "Paints 3 test crops at 3 strengths (about 5 minutes on the GPU). Continue?", "Start"))) return;
-  startJob({ kind: "art", name: app.design.meta.name, step });
+function artJob() {
+  if (app.design) startJob({ kind: "art", name: app.design.meta.name });
 }
 
 // ================================================================ menubar
@@ -560,8 +535,7 @@ function buildMenus() {
       item("Save as…", saveAs, { disabled: noDesign() }),
       item("Autosave every minute", () => { app.opts.autosave = !app.opts.autosave; store("opts", app.opts); }, { checked: app.opts.autosave, keep: true }),
       div(),
-      item("Import main project's board…", importMain),
-      item("Generate new tiles from config…", generateDialog),
+      item("Generate new tiles…", generateDialog),
       div(),
       item("Export board (PDF / SVG / tiles.json)…", exportDialog, { disabled: noDesign(), key: "Ctrl+E" }),
       item("Download design data (JSON)", downloadJSON, { disabled: noDesign() }),
@@ -585,7 +559,7 @@ function buildMenus() {
       item("Zoom out", () => app.view.zoomAt(app.view.cw / 2, app.view.ch / 2, 0.8), { key: "−" }),
       item("Actual size (approx.)", () => { const b = app.view.toBoard(app.view.cw / 2, app.view.ch / 2); app.view.scale = 96 / 25.4; app.view.centerOn(...b); }),
       div(), head("On the board (also in export)"),
-      setting("compose.map_art", "Map art", mapArtWhenOn, "none"),
+      setting("compose.map_art", "Map image"),
       onBoard("borders", "Tile borders"),
       setting("compose.show_tile_numbers", "Tile numbers"),
       onBoard("circles", "Pawn circles"),
@@ -603,12 +577,9 @@ function buildMenus() {
       aid("problems", "Highlight problems"), aid("unassigned", "Show water without a tile"),
     ].filter(Boolean)),
     menu("Generate", () => [
-      item("New tiles from config (new design)…", generateDialog),
-      item("Import main project's board…", importMain),
-      div(), head("Art for this design"),
-      item("Rebuild real-colour guide map", () => artJob("guide"), { disabled: noDesign() }),
-      item("SDXL style samples (≈5 min, GPU)…", () => artJob("samples"), { disabled: noDesign() }),
-      item("Paint full SDXL art (≈20 min, GPU)…", () => artJob("full"), { disabled: noDesign() }),
+      item("New tiles (new design)…", generateDialog),
+      div(), head("Map image for this design"),
+      item("Rebuild map image", artJob, { disabled: noDesign() }),
       div(),
       item("Show job log", () => setTab("log")),
       item("Cancel running job", () => postJSON("/api/jobs/cancel"), { disabled: app.job?.status !== "running" }),
@@ -622,8 +593,6 @@ function buildMenus() {
 function setLook(key, value) {
   app.design.edit(`view: ${key}`, (m) => { m.look = { ...m.look, [key]: value }; });
 }
-
-function mapArtWhenOn() { return app.mainCfg.compose.map_art === "art" ? "art" : "guide"; }
 
 // one undo step per drag of the slider
 function opacitySlider() {
@@ -682,8 +651,8 @@ function effectOf(path) {
 let cfgSaveTimer;
 async function saveConfig() {
   clearTimeout(cfgSaveTimer);
-  // based_on: so that only values changed here are kept, and the rest keeps following the main config
-  await putJSON("/api/config", { config: app.cfg, based_on: app.mainCfg });
+  // based_on: so that only values changed here are kept, and the rest keeps following the defaults
+  await putJSON("/api/config", { config: app.cfg, based_on: app.defaults });
 }
 function configChanged(path) {
   clearTimeout(cfgSaveTimer);
@@ -737,16 +706,15 @@ function configPanel(section) {
     if (section === "passages") { resetPassages(); return; }
     await saveConfig();
     const r = await postJSON("/api/config/reset", { section });
-    app.cfg = r.config; app.mainCfg = r.main_config; applyLiveConfig(); openMenu?.rebuild();
-    toast(`${SECTION_TITLES[section]} reset to the main project's values`);
-  } }, section === "webtool" ? "Defaults" : "Reset to main");
-  const head = h("div", { class: "cfghead" }, h("span", { class: "title" }, SECTION_TITLES[section]),
-    section === "webtool" ? null : h("span", { class: "muted" }, "config.yaml › " + section), resetBtn);
+    app.cfg = r.config; app.defaults = r.defaults; applyLiveConfig(); openMenu?.rebuild();
+    toast(`${SECTION_TITLES[section]} reset to the defaults`);
+  } }, "Reset to defaults");
+  const head = h("div", { class: "cfghead" }, h("span", { class: "title" }, SECTION_TITLES[section]), resetBtn);
   const body = h("div", { class: "cfgpanel" + (wide ? " wide" : "") }, head);
   const note = { board: "Changes need new tiles (Generate › New tiles).", map: "Changes need new tiles.",
-    seas: "Changes need new tiles.", passages: "Passages are stored in this design. New boards start with the main project's passages.",
+    seas: "Changes need new tiles.", passages: "Passages are stored in this design. New boards start with the default passages.",
     compose: "Applies at once to the editor and to Export.", day_track: "Each day is a field: click it on the board to edit it. The values below are the defaults for Reset day track.",
-    art: "Used by Generate › art runs.", webtool: "Frame changes need new tiles (the map shrinks to make room)." }[section];
+    art: "Used by Generate and Generate › Rebuild map image.", webtool: "Frame changes need new tiles (the map shrinks to make room)." }[section];
   if (note) body.append(h("div", { class: "muted", style: "margin-bottom:6px" }, note));
   if (section === "day_track" && app.design) {
     body.append(h("div", { class: "row", style: "margin-bottom:6px" },
@@ -772,14 +740,14 @@ function renderFields(parent, obj, prefix) {
 }
 
 function cfgRow(path, key, v) {
-  const mainV = getPath(app.mainCfg, path);
-  const differs = mainV !== undefined && JSON.stringify(mainV) !== JSON.stringify(v);
+  const defV = getPath(app.defaults, path);
+  const differs = defV !== undefined && JSON.stringify(defV) !== JSON.stringify(v);
   const eff = effectOf(path);
   const set = (nv) => {
     setPath(app.cfg, path, nv);
     configChanged(path);
     const dot = row.querySelector(".diffdot");
-    const now = mainV !== undefined && JSON.stringify(mainV) !== JSON.stringify(nv);
+    const now = defV !== undefined && JSON.stringify(defV) !== JSON.stringify(nv);
     if (dot) dot.hidden = !now;
   };
   let ctl;
@@ -796,20 +764,17 @@ function cfgRow(path, key, v) {
     col.oninput = () => { txt.value = col.value; set(col.value); };
     txt.onchange = () => { if (/^#[0-9a-f]{6}$/i.test(txt.value)) { col.value = txt.value; set(txt.value); } };
     ctl = h("span", { class: "ctl" }, col, txt);
-  } else if (typeof v === "string" && (v.length > 50 || key.includes("prompt"))) {
+  } else if (typeof v === "string" && v.length > 50) {
     ctl = h("textarea", { rows: 3, onchange: (e) => set(e.target.value) }, v);
-  } else if (path === "compose.map_art") {
-    ctl = h("select", { onchange: (e) => set(e.target.value) },
-      [["guide", "guide (atlas map)"], ["art", "art (SDXL painting)"], ["none", "none"]].map(([o, l]) => h("option", { value: o, selected: o === v }, l)));
   } else if (path === "compose.language") {
     ctl = h("select", { onchange: (e) => set(e.target.value) }, ["en", "nl"].map((o) => h("option", { value: o, selected: o === v }, o)));
   } else if (path === "map.projection") {
     ctl = h("select", { onchange: (e) => set(e.target.value) }, ["miller", "equirectangular"].map((o) => h("option", { value: o, selected: o === v }, o)));
   } else ctl = h("input", { type: "text", value: v ?? "", onchange: (e) => set(e.target.value) });
   const row = h("div", { class: "cfgrow" },
-    h("label", { title: path }, key, h("span", { class: "diffdot", hidden: !differs, title: `main project: ${JSON.stringify(mainV)}` })),
+    h("label", { title: path }, key, h("span", { class: "diffdot", hidden: !differs, title: `default: ${JSON.stringify(defV)}` })),
     h("div", { class: "ctl" }, ctl),
-    h("span", { class: "badge " + eff, title: { live: "applies immediately, also in export", edit: "shapes tiles that are moved, split or grown from now on", art: "used by art runs", reset: "used when you press Reset day track", regen: "needs new tiles" }[eff] }, { regen: "regenerate", reset: "on reset", edit: "next edit" }[eff] || eff),
+    h("span", { class: "badge " + eff, title: { live: "applies immediately, also in export", edit: "shapes tiles that are moved, split or grown from now on", art: "used for the map image", reset: "used when you press Reset day track", regen: "needs new tiles" }[eff] }, { regen: "regenerate", reset: "on reset", edit: "next edit" }[eff] || eff),
     app.comments[path] ? h("div", { class: "help" }, app.comments[path]) : null);
   return row;
 }
@@ -818,10 +783,10 @@ function resetPassages() {
   const d = app.design;
   if (!d) return;
   d.edit("reset passages", (m) => {
-    m.passages = [...app.mainCfg.passages.map((p) => d.passageFromConfig(p)), ...m.passages.filter((p) => p.source !== "config")];
+    m.passages = [...app.defaults.passages.map((p) => d.passageFromConfig(p)), ...m.passages.filter((p) => p.source !== "config")];
   });
   openMenu?.rebuild();
-  toast("Passages are the main project's again; links drawn here are kept (Ctrl+Z undoes it)");
+  toast("Passages are the defaults again; links drawn here are kept (Ctrl+Z undoes it)");
 }
 
 function passagesTable() {
@@ -1554,7 +1519,7 @@ function duplicateField() {
 function passageInspector(p) {
   const d = app.design;
   const info = d.analysis?.passageInfo?.find((x) => x.p === p);
-  const main = app.mainCfg.passages.find((m) => m.name === p.name);
+  const main = app.defaults.passages.find((m) => m.name === p.name);
   const via = p.via_mm || [];
   const apply = (label, fn) => {
     if (!d.meta.passages.includes(p)) return;
@@ -1578,10 +1543,10 @@ function passageInspector(p) {
       h("button", { title: "remove this point", onclick: () => apply("remove waypoint", () => p.via_mm.splice(i, 1)) }, "✕"))))),
   h("div", { class: "row" },
     via.length ? h("button", { onclick: () => apply("straighten passage", () => { p.via_mm = []; }) }, "Straighten") : null,
-    main ? h("button", { onclick: () => apply("main project's route", () => {
+    main ? h("button", { onclick: () => apply("default route", () => {
       const { a_mm, b_mm, via_mm } = d.passageFromConfig(main);
       Object.assign(p, { a_mm, b_mm, via_mm });
-    }) }, "Use main project's route") : null,
+    }) }, "Use default route") : null,
     h("button", { class: "danger", onclick: deleteSelection }, "Delete"))];
 }
 
@@ -1842,7 +1807,7 @@ function renderReport() {
 
 function renderLog() {
   const j = app.job;
-  if (!j) return h("p", { class: "muted" }, "No job has run yet. Generate, import, art and export jobs show their output here.");
+  if (!j) return h("p", { class: "muted" }, "No job has run yet. Generate, map image and export jobs show their output here.");
   const pre = h("pre", { class: "log" }, app.jobLog.join("\n"));
   setTimeout(() => { const b = $("#tabbody"); b.scrollTop = b.scrollHeight; }, 0);
   return [h("div", { class: "sec" }, h("h3", {}, j.title),
@@ -1864,8 +1829,8 @@ function helpDialog() {
 }
 function aboutDialog() {
   dialog("About", [h("p", {}, "Sea Board Designer: iterate on the board of the co-op sea game."),
-    h("p", {}, "Settings follow the main config.yaml, except what you change here (", h("code", {}, "state/config.yaml"), "). The main project's scripts in ",
-      h("code", {}, app.paths?.src || "../src"), " are run unchanged with that copy; nothing in the main project is modified."),
+    h("p", {}, "Settings follow the defaults (", h("code", {}, app.paths?.defaults || "../src/config.yaml"), "), except what you change here (",
+      h("code", {}, app.paths?.settings || "state/config.yaml"), "). Reset to defaults drops your changes."),
     h("p", { class: "muted" }, "Tiles are edited as a raster (4 px per mm like the generator). Move and split regrow tiles with the same geodesic Voronoi and area balancing as make_tiles.py.")]);
 }
 

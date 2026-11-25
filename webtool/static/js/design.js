@@ -1,6 +1,6 @@
 // The editable design: label raster + metadata (tiles, seas, passages, fields), with undo.
 // Coordinates: tiles, pawn spots, sea labels and passages use mm on the MAP area (like the
-// pipeline's tiles.json); fields use mm on the WHOLE board (frame included).
+// generator's tiles.json); fields use mm on the WHOLE board (frame included).
 import * as R from "./raster.js";
 import { makeProjection } from "./projection.js";
 
@@ -476,7 +476,7 @@ export class Design {
     this.commit();
   }
 
-  // a passage of the main config, in this board's mm
+  // a passage of the default settings, in this board's mm
   passageFromConfig(p) {
     const mm = (ll) => this.proj.forward(ll[0], ll[1]);
     return { name: p.name, kind: p.kind, enabled: p.enabled !== false, source: "config",

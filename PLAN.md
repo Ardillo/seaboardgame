@@ -21,15 +21,15 @@ Later stage (not decided yet): a physical or digital co-op board game.
 | Canals | Real big canals: Suez, Panama, Kiel. Because the Red Sea is too narrow for a pawn, Suez is one route, **"Suez Canal + Red Sea"** (Mediterranean to Arabian Sea), drawn along the canal and down the middle of the Red Sea (`via` waypoints in the config). Kiel connects nothing while the Baltic is not drawn. White Sea–Baltic (4 m draft, through lakes), Volga–Don (rivers, to the Caspian, which is a lake) and Corinth (6.4 km, inside the Mediterranean) are in the config but switched off |
 | Straits | Gibraltar, Bosporus and Dardanelles, the Danish straits, Bab-el-Mandeb and Hormuz are in the config. Only Gibraltar is used now; the others lead to seas that are not drawn and are skipped automatically |
 | Board size | 60×40 cm (`board.width_mm` and `board.height_mm`) |
-| Map art | **Atlas map** (Natural Earth II: realistic colours and relief), chosen 2026-11-22 to keep things simple (`compose.map_art: guide`). The SDXL painting (`make_art.py`, strength 0.40) is still in the code but unused, and will be removed (see Restructuring) |
+| Map art | **Atlas map** (Natural Earth II: realistic colours and relief), chosen 2026-11-22 to keep things simple. `compose.map_art` switches it on or off. The SDXL painting was removed in PR 4 (see Restructuring) |
 | Webtool only (2026-11-22) | The project becomes a web application only: no separate command-line workflow. SDXL is removed, git keeps designs and settings only (the first start makes everything else ready), Windows is not supported. Plan in the section Restructuring below |
 | Day track | My proposal, open to change: 7 squares in the bottom panel; Mon–Fri blue, a gap, then Sat–Sun orange. Abbreviation plus full day name, English or Dutch (`compose.language`). In the webtool each day and the legend can be edited |
 | Names | English or Dutch from Natural Earth. The Dutch North/South Atlantic and Pacific names are set in `seas.names_nl`, because Natural Earth drops north and south there |
 | Publishing (2026-11-22) | GitHub repo. All rights reserved, ardillo (`LICENSE`); credit to Natural Earth in `README.md`. Downloaded and generated files are not committed; paths are relative to `src/` |
 
-## How it is built (three layers, plus an editor)
+## How it is built (one web tool)
 
-1. **Geometry**, `src/make_tiles.py`
+1. **Geometry**, `src/make_tiles.py` (run by Generate as a separate process, so Cancel can stop it)
    - Natural Earth land and marine areas (public domain) are drawn into a pixel grid (4 px/mm).
    - Sea regions come from Natural Earth's named seas. Gaps are filled by distance through the water, so a fill only crosses land at the listed straits.
    - The straight lines of the ocean boundaries are bent with a noise field.
@@ -37,20 +37,21 @@ Later stage (not decided yet): a physical or digital co-op board game.
    - Tiles are grown inside each sea with a geodesic Voronoi, then relaxed with Lloyd relaxation plus area balancing. Borders get a slight wiggle.
    - Refine rounds: one tile fewer where a tile is too narrow for the pawn, extra tiles where tiles are too wide.
    - Sea names are placed by searching for a free spot inside their own sea, clear of the pawn spots (where the tile numbers are), other names and edge arrows.
-   - Output: `tiles.json` (tiles, seas, neighbours, passages, edge crossings, pawn spots), `borders.json` (smoothed lines), `labels.npy` (tile per pixel), `preview.png`, `report.txt`.
-2. **Map image**, `src/make_art.py`
-   - `guide`: Natural Earth II (realistic colours with relief) reprojected to the board. This atlas map is the board art.
-   - Optional, not used now (`samples`, `full`): SDXL img2img repaints the atlas map in overlapping 1024 px tiles (about 4 min).
-3. **Composition**, `src/compose_board.py`
-   - Stacks the map image, borders, tile numbers, sea names, passages, wrap arrows and the day track into an SVG.
-   - Exports SVG, PDF, a 300 dpi PNG and a preview.
-4. **Editor**, `webtool/`
-   - Edits tiles, names, passages, fields and the day track by hand in the browser (`webtool/README.md`).
+   - Output, in the run folder: `tiles.json` (tiles, seas, neighbours, passages, edge crossings, pawn spots), `borders.json`, `labels.npy` (tile per pixel), `preview.png`, `report.txt`. Generate turns it into a design.
+2. **Map image**, `src/map_image.py`: Natural Earth II (realistic colours with relief) reprojected to the board, at
+   `art.dpi`. Made by Generate, or again with Generate › *Rebuild map image*.
+3. **Editor**, `webtool/`: edits tiles, names, passages, fields and the day track by hand in the browser
+   (`webtool/README.md`).
+4. **Export**, `webtool/compose.py` (the only composer): the map image, tile colours, borders, tile numbers, sea
+   names, passages, edge arrows, frame and fields as an SVG; the server writes `board.svg`, `board.pdf`, a preview, an
+   optional print PNG and `tiles.json`.
 
-## Restructuring: webtool only (planned 2026-11-22; PRs 1–3 done)
+Settings: the defaults are `src/config.yaml`; what you change in the tool is kept in `webtool/state/config.yaml`.
+
+## Restructuring: webtool only (planned 2026-11-22; PRs 1–4 done)
 
 The project began as command-line scripts (`src/`) with the webtool (`webtool/`) added later. It becomes one web
-application. "How it is built" above describes the code as it is until these PRs are merged.
+application. "How it is built" above describes the code after PR 4; PR 5 moves the files to the target layout.
 
 ### Decisions
 
@@ -96,7 +97,7 @@ data/                    downloaded map data, not in git
 | 1. Safety ✓ | Reference tests (`webtool/tests/reference.py`) and a server safety test (`webtool/tests/server_safety.py`); the three server bugs fixed | tests pass; the three bugs cannot be reproduced |
 | 2. Speed ✓ | Single-core rewrite of the tile search (Findings; the prototype, its diff and checks are in `PR_2_speed_prototype.md`) | byte-identical board on the reference settings; your board in about 100 s or less on the target machine (71 s here on one core; still to be timed on the target machine) |
 | 3. First start ✓ | Check the map data at start and download what is missing in the background, with progress and Retry. A folder only counts when it is complete. Editing and export keep working meanwhile; Generate and the map image wait | works from an empty, a half-downloaded and an offline start |
-| 4. One app, no SDXL | One composer and one settings source instead of the pipeline scripts plus the webtool. SDXL removed. "Reset to main" becomes "Reset to defaults" | export identical to today's for the same design |
+| 4. One app, no SDXL ✓ | One composer and one settings source instead of the pipeline scripts plus the webtool. SDXL removed. "Reset to main" becomes "Reset to defaults" | export identical to today's for the same design |
 | 5. Move | New layout; old designs are upgraded when opened | your design opens and exports the same |
 | 6. Cleanup | One README, this plan updated, leftovers deleted, Windows TODO removed | a fresh clone gets to an exported board with only `run.sh` and the browser |
 
@@ -184,7 +185,7 @@ replaces it and both Cancel cases). The code from before PR 1 fails the checks f
 before the Cancel fix fails "Cancel right after Generate". Every wait in the test has a time limit, so a broken
 server makes it fail, not hang.
 
-**SDXL: everything that goes**
+**SDXL: everything that goes** (all removed in PR 4, except the files on disk)
 - `make_art.py` except the atlas-map step, which moves into Generate.
 - Settings under `art:`: `model`, `strength`, `steps`, `guidance`, `tile_px`, `overlap_px`, `seed`, `prompt`,
   `negative_prompt`. Only `art.dpi` (atlas map resolution) stays.
@@ -195,6 +196,34 @@ server makes it fail, not hang.
 - On disk, outside git: the 9.3 GB model cache (`~/.cache/huggingface`) and the unused 508 MB `webtool/venv`.
   The venv no longer needs system packages for torch.
 - Also unused: `scikit-image` in `requirements.txt` (nothing imports it).
+
+**PR 4 done (2026-11-25): one app, no SDXL**
+- One composer: `webtool/compose.py` draws the whole board in the server process. `src/compose_board.py` is gone,
+  and so is the old way of exporting (run `compose_board.py` on a stripped `tiles.json`, then cut its SVG apart to
+  add tile colours, own arrows, frame and fields).
+- One settings source: `src/config.yaml` holds the defaults (now also the frame settings, which were in
+  `server.py`), `webtool/state/config.yaml` only what you changed. "Reset to main" is "Reset to defaults" in every
+  section; Inspect › *Use default route* and the passages reset take the default passages.
+- No main project: Import, `out/` and the command-line steps are gone; a design comes from Generate (or a copy).
+- SDXL removed: `src/make_art.py` is replaced by `src/map_image.py` (atlas map only, made inside Generate and by
+  Generate › *Rebuild map image*; it runs inside the server, so Cancel during those few seconds stops the job right
+  after them). `compose.map_art` is on/off. Older settings files are upgraded when read:
+  `guide`/`art` becomes on, `none` off, and the SDXL keys are dropped.
+- `requirements.txt` without SDXL and `scikit-image`; the venv no longer needs `--system-site-packages`: in a fresh
+  venv made only from `requirements.txt` (no torch), `tests/reference.py` gives the same board.
+- Checks:
+  - Export identical: the committed `main` design exported with the old and the new code in five variants (as it
+    is; tile colours, pawn circles, bigger red arrows, a moved and a hidden arrow, an extra field; every layer off
+    and no map image; Dutch with another font and colour; a generated board with a frame). `board.svg`,
+    `tiles.json`, `borders.json` and the preview are byte-identical in all five. An export took about 13 s here
+    instead of 21 s (no separate process).
+  - `tests/reference.py`: all fingerprints unchanged except `design.json`, whose stored settings lost the SDXL keys
+    and `output_dir`, have `map_art: true` and the frame defaults (checked field by field), and the pipeline's own
+    `board.svg`, which no longer exists. `tests/parity.py` (pipeline against tool) is gone with the pipeline.
+  - `tests/server_safety.py` (38 checks) now generates small boards instead of importing; `tests/first_start.py`
+    uses Generate where it used Import. Both pass.
+  - In a browser (headless Chromium): menus without Import and SDXL, Map image on/off in the editor, the Compose
+    panel with a checkbox and "Reset to defaults", Rebuild map image, Export, and the empty start; no console errors.
 
 **State of the designs**
 - The `main` design in the repo was saved at 02:32 on 2026-11-22 and has no arrow edits; it has 106 tiles because
@@ -213,7 +242,7 @@ server makes it fail, not hang.
 - [x] 2026-11-22: dotted pawn circles removed, Suez drawn over water, open seas without room for a pawn merged (no tile-less patches)
 - [x] 2026-11-22: license, credit, relative paths, setup docs tested in a fresh clone, Dutch ocean names
 - [x] 2026-11-22: the webtool edits the around-the-world arrows (drag, hide, close, size, colour)
-- [ ] Restructuring to webtool only: PRs 1–6 above (PRs 1–3 done)
+- [ ] Restructuring to webtool only: PRs 1–6 above (PRs 1–4 done)
 - [ ] Print proof: print part of the board at 100% and check the pawn size against the smallest tiles
 
 ## Current result (2026-11-22: 107 tiles, 29 seas, 12 mm pawn)
