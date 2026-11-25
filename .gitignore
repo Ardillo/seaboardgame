@@ -7,5 +7,6 @@ __pycache__
 /out/
 /webtool/work/
 /webtool/designs/*/export/
+/webtool/designs/gen*
 
 /test/
