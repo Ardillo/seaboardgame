@@ -143,6 +143,7 @@ async function boot() {
     }
     buildMenus();
     setTool(app.tool);
+    watchData(st.data);
     if (st.job && st.job.status === "running") watchJob(st.job);
     const last = st.state?.last_design;
     if (last && st.designs.some((d) => d.name === last)) await openDesign(last);
@@ -381,6 +382,47 @@ function watchJob(job) {
     } catch (e) { setTimeout(tick, 2000); }
   };
   tick();
+}
+
+// map data: downloaded in the background at first start; editing and export never wait for it
+function watchData(data) {
+  const pill = $("#datapill");
+  let failed = false, timer = 0;
+  const later = (ms) => { clearTimeout(timer); timer = setTimeout(tick, ms); };
+  pill.onclick = async () => {
+    if (!pill.classList.contains("error")) return;
+    try { show(await postJSON("/api/data/retry")); } catch (e) { toast(e.message, true); }
+    later(500);
+  };
+  function show(d) {
+    if (!d) return;
+    const mb = (n) => Math.round(n / 1048576);
+    pill.hidden = d.state === "ready";
+    pill.classList.toggle("error", d.state === "error");
+    if (d.state === "downloading") {
+      pill.textContent = `Map data · ${d.total ? Math.floor((100 * d.done) / d.total) + " %" : mb(d.done) + " MB"}` +
+        (d.parts > 1 ? ` · part ${d.parts - d.missing.length + 1} of ${d.parts}` : "");
+      pill.title = `Downloading ${d.current} into ${d.dir}. Editing and export work meanwhile; Generate, Import and the map image wait for it.`;
+    } else if (d.state === "error") {
+      pill.textContent = "Map data missing · Retry";
+      pill.title = `Download failed: ${d.error}. Click to try again.`;
+      if (!failed) toast(`Map data could not be downloaded (${d.error}). Click "Retry" at the top to try again.`, true);
+    } else {
+      pill.textContent = "Map data · checking";
+      pill.title = "Checking the map data";
+    }
+    failed = d.state === "error";
+  }
+  async function tick() {
+    try {
+      const d = await api("/api/data");
+      show(d);
+      if (d.state === "checking" || d.state === "downloading") later(1000);
+      else if (d.state === "error") later(5000);      // a Generate may start a new try
+    } catch (e) { later(3000); }
+  }
+  show(data);
+  if (data && data.state !== "ready") tick();
 }
 
 async function jobDone(j) {

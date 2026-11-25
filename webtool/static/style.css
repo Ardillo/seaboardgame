@@ -98,6 +98,8 @@ table.ptable input[type=text] { width: 100%; }
 #dirty.on { background: var(--accent); }
 #jobpill { background: #233648; border: 1px solid var(--accent-2); color: #bfe3f7; border-radius: 12px; padding: 1px 10px; cursor: pointer; font-size: 12px; }
 #jobpill.error { border-color: var(--danger); color: var(--danger); }
+#datapill { background: #233648; border: 1px solid var(--accent-2); color: #bfe3f7; border-radius: 12px; padding: 1px 10px; font-size: 12px; cursor: default; }
+#datapill.error { border-color: var(--danger); color: var(--danger); cursor: pointer; }
 #regen-flag { border-color: var(--accent); color: var(--accent); padding: 1px 10px; font-size: 12px; }
 
 /* ------------------------------------------------ option bar + toolbar */

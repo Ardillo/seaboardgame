@@ -22,7 +22,6 @@ import json
 import mimetypes
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -55,6 +54,7 @@ MAIN_CONFIG = SRC / "config.yaml"
 # read-only use of the shared helpers; never write .pyc files into ../src
 sys.dont_write_bytecode = True
 sys.path.append(str(SRC))
+import fetch_data  # noqa: E402
 
 # environment for pipeline subprocesses: numba cache and bytecode stay out of ../src
 ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONUNBUFFERED="1",
@@ -264,12 +264,78 @@ def has_italic(family):
         return True
 
 
-def check_data(cfg):
+# ------------------------------------------------------------------ map data (downloaded at first start)
+class DataFetch:
+    """The Natural Earth download in the background. Editing and export never wait for it."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.thread, self.dir = None, None
+        self.state, self.error = "checking", None       # checking | downloading | ready | error
+        self.current, self.done, self.total = None, 0, None
+        self.missing, self.parts = [], 0
+
+    def start(self, d=None):
+        """Check the folder and download what is missing, unless that is already running."""
+        d = Path(d or data_path(my_config()))
+        with self.lock:
+            if self.busy():
+                return
+            self.dir, self.state, self.error = d, "checking", None
+            self.current, self.done, self.total = None, 0, None
+            self.thread = threading.Thread(target=self.run, args=(d,), daemon=True)
+            self.thread.start()
+
+    def run(self, d):
+        try:
+            self.missing = fetch_data.missing(d)
+            self.parts = len(self.missing)
+            for name in list(self.missing):
+                self.state, self.current, self.done, self.total = "downloading", name, 0, None
+                fetch_data.download(d, name, self.progress)
+                self.missing.remove(name)
+            shutil.rmtree(d / ".download", ignore_errors=True)
+            self.state, self.current = "ready", None
+        except Exception as e:      # noqa: BLE001 - offline, server error, disk full: all shown with Retry
+            reason = getattr(e, "reason", None) or e
+            self.state, self.error = "error", f"{self.current or 'check'}: {reason}"
+
+    def busy(self):
+        t = self.thread
+        return bool(t and t.is_alive())
+
+    def progress(self, name, done, total):
+        self.done, self.total = done, total
+
+    def as_dict(self):
+        return {"state": self.state, "error": self.error, "current": self.current, "done": self.done,
+                "total": self.total, "missing": list(self.missing), "parts": self.parts, "dir": str(self.dir) if self.dir else None}
+
+
+DATA = DataFetch()
+
+
+def wait_for_data(job, cfg, names):
+    """Return the data folder once `names` are complete; start or wait for the download. Cancel works."""
     d = data_path(cfg)
-    if not (d / "ne_50m_land").exists():
-        cmd = shlex.join([str(PY), str(SRC / "fetch_data.py"), "--set", f"data_dir={d}"])
-        raise RuntimeError(f"Natural Earth data not found in {d}. Download it with: {cmd}")
-    return d
+    ours = False        # has a download for this folder run (or started) while this job waited?
+    said = 0
+    while True:
+        if job.cancelled:
+            raise RuntimeError("cancelled")
+        if not fetch_data.missing(d, names):
+            return d
+        busy = DATA.busy()
+        if not busy and ours:
+            raise RuntimeError(f"the map data could not be downloaded ({DATA.error or 'incomplete'}). "
+                               "Check the connection and press Retry next to 'Map data'.")
+        if not busy:
+            DATA.start(d)
+            job.say("waiting for the map data to finish downloading")
+        ours = ours or DATA.dir == d
+        if time.time() - said > 5 and DATA.current:
+            said = time.time()
+            job.say(f"  {DATA.current}: {DATA.done >> 20} MB" + (f" of {DATA.total >> 20} MB" if DATA.total else ""))
+        time.sleep(0.3)
 
 
 # ------------------------------------------------------------------ jobs
@@ -589,7 +655,7 @@ def job_generate(name, with_guide, replace=False):
     run_dir = RUNS / run_id
 
     def fn(job):
-        check_data(cfg)
+        wait_for_data(job, cfg, fetch_data.TILES + (fetch_data.MAP_IMAGE if with_guide else []))
         run_dir.mkdir(parents=True, exist_ok=True)
         rc = run_config(cfg, run_dir)
         cfg_path = run_dir / "config.yaml"
@@ -617,6 +683,7 @@ def job_import_main(name, replace=False):
     def fn(job):
         if not (MAIN_OUT / "tiles/tiles.json").exists():
             raise RuntimeError(f"no tiles in {MAIN_OUT}/tiles yet")
+        wait_for_data(job, main_config(), fetch_data.TILES)       # the water mask needs the land outlines
         cfg = rel_paths(main_config())
         tj = json.loads((MAIN_OUT / "tiles/tiles.json").read_text())
         b = tj["board"]
@@ -653,7 +720,7 @@ def job_art(name, step, strength=None):
         rc = load_yaml(cfg_path)
         # art settings follow the current menubar config
         rc["art"] = my_config()["art"]
-        rc["data_dir"] = rel_src(check_data(rc))
+        rc["data_dir"] = rel_src(wait_for_data(job, rc, fetch_data.MAP_IMAGE if step == "guide" else list(fetch_data.DATASETS)))
         if strength is not None:
             rc["art"]["strength"] = float(strength)
         cfg_path.write_text(yaml.safe_dump(rc, sort_keys=False, allow_unicode=True, width=120))
@@ -1221,7 +1288,7 @@ class Handler(BaseHTTPRequestHandler):
                 "main_board": {"exists": main_tiles.exists(),
                                "modified": main_tiles.stat().st_mtime if main_tiles.exists() else None},
                 "board_text": BOARD_TEXT, "look_default": LOOK_DEFAULT, "look_before": LOOK_BEFORE,
-                "data_ok": (data_path(my_config()) / "ne_50m_land").exists(),
+                "data": DATA.as_dict(),
                 "paths": {"src": os.path.relpath(SRC, WEB), "main_out": os.path.relpath(MAIN_OUT, WEB), "webtool": "."}})
         if p == ["config"] and method == "PUT":
             req = self.json_body()
@@ -1244,6 +1311,13 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = main
             save_my_config(cfg)
             return self.send(200, {"ok": True, "config": my_config(), "main_config": main_config()})
+        if p == ["data"] and method == "GET":
+            if DATA.thread is None:     # nothing checked yet (the server was started without main())
+                DATA.start()
+            return self.send(200, DATA.as_dict())
+        if p == ["data", "retry"] and method == "POST":
+            DATA.start()
+            return self.send(200, DATA.as_dict())
         if p == ["font"] and method == "GET":
             family = parse_qs(url.query).get("family", [""])[0]
             return self.send(200, {"family": family, "italic": has_italic(family)})
@@ -1349,6 +1423,7 @@ def main():
         p.mkdir(parents=True, exist_ok=True)
     if MY_CONFIG.exists() and "passages" in (load_yaml(MY_CONFIG) or {}):     # an old full copy
         save_my_config(my_config())
+    DATA.start()        # check the map data and download what is missing, in the background
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(f"Board design tool on http://{a.host}:{a.port}  (pipeline: {SRC}, read-only)")
     srv.serve_forever()

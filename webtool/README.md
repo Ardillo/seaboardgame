@@ -10,6 +10,11 @@ with the tool's own copy of the config, and all output stays in this folder. All
 ./run.sh --host 0.0.0.0  # reachable from other machines
 ```
 
+At start the tool checks the Natural Earth map data (`../data/natural_earth`) and downloads what is missing in the
+background (about 90 MB). A "Map data" pill at the top shows the progress; click it to retry when the download
+failed (for example offline). Editing and export work meanwhile; Generate, Import and the map image wait for it.
+A folder only counts when it is complete; an interrupted download continues where it stopped.
+
 ## What you can do
 
 | Where | What |
@@ -52,13 +57,15 @@ Run from this folder:
 ../.venv/bin/python tests/reference.py         # same board as the saved references, 10 cases (about 3 min)
 ../.venv/bin/python tests/reference.py --full  # also the real board settings (minutes more)
 ../.venv/bin/python tests/server_safety.py     # no reading or overwriting what a request should not; Cancel works (seconds)
+../.venv/bin/python tests/first_start.py       # map data download: empty, half-downloaded and offline start (1 min)
 ```
 
 `tests/reference.py` runs the pipeline and the tool on fixed settings (`tests/reference_config.yaml`) and compares
 fingerprints of every output with `tests/reference.json`. Only after a change that should change the board, save
 new ones with `--update`. The fingerprints depend on the package versions in `requirements.txt`.
 `tests/server_safety.py` imports `../out` into a temporary folder; both tests need the Natural Earth data
-(`--data` to point elsewhere) and leave designs, settings and `../out` alone.
+(`--data` to point elsewhere) and leave designs, settings and `../out` alone. `tests/first_start.py` downloads from
+a small local stand-in for Natural Earth (never the internet) into temporary folders; it needs `../out` too.
 
 Importing or generating into the name of an existing design asks before replacing it.
 
