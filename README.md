@@ -18,11 +18,11 @@ uv venv --python 3.12 --system-site-packages .venv
 uv pip install --python .venv/bin/python -r webtool/requirements.txt
 cd src
 PY=../.venv/bin/python
-$PY fetch_data.py       # Natural Earth: ~90 MB download, ~170 MB on disk
+$PY fetch_data.py       # Natural Earth: ~90 MB download, ~170 MB on disk (the web tool does this by itself)
 ```
 
 All commands below run from `src/`. In a new shell, repeat `cd src` and the `PY=` line.
-`fetch_data.py` skips folders that exist; after a broken download, delete that folder and run it again.
+`fetch_data.py` only skips folders that are complete; run it again after a broken download and it continues.
 
 ## Build the board
 

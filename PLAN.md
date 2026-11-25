@@ -47,7 +47,7 @@ Later stage (not decided yet): a physical or digital co-op board game.
 4. **Editor**, `webtool/`
    - Edits tiles, names, passages, fields and the day track by hand in the browser (`webtool/README.md`).
 
-## Restructuring: webtool only (planned 2026-11-22; PRs 1 and 2 done)
+## Restructuring: webtool only (planned 2026-11-22; PRs 1–3 done)
 
 The project began as command-line scripts (`src/`) with the webtool (`webtool/`) added later. It becomes one web
 application. "How it is built" above describes the code as it is until these PRs are merged.
@@ -95,7 +95,7 @@ data/                    downloaded map data, not in git
 |---|---|---|
 | 1. Safety ✓ | Reference tests (`webtool/tests/reference.py`) and a server safety test (`webtool/tests/server_safety.py`); the three server bugs fixed | tests pass; the three bugs cannot be reproduced |
 | 2. Speed ✓ | Single-core rewrite of the tile search (Findings; the prototype, its diff and checks are in `PR_2_speed_prototype.md`) | byte-identical board on the reference settings; your board in about 100 s or less on the target machine (71 s here on one core; still to be timed on the target machine) |
-| 3. First start | Check the map data at start and download what is missing in the background, with progress and Retry. A folder only counts when it is complete. Editing and export keep working meanwhile; Generate and the map image wait | works from an empty, a half-downloaded and an offline start |
+| 3. First start ✓ | Check the map data at start and download what is missing in the background, with progress and Retry. A folder only counts when it is complete. Editing and export keep working meanwhile; Generate and the map image wait | works from an empty, a half-downloaded and an offline start |
 | 4. One app, no SDXL | One composer and one settings source instead of the pipeline scripts plus the webtool. SDXL removed. "Reset to main" becomes "Reset to defaults" | export identical to today's for the same design |
 | 5. Move | New layout; old designs are upgraded when opened | your design opens and exports the same |
 | 6. Cleanup | One README, this plan updated, leftovers deleted, Windows TODO removed | a fresh clone gets to an exported board with only `run.sh` and the browser |
@@ -148,6 +148,21 @@ no other session should edit `src/` at the same time.
   the server reported the data as present, and Generate then crashed.
 - The committed map image of a design is byte-identical to a freshly built one, so it can be rebuilt after the
   download and leave git.
+- **PR 3 done (2026-11-25).** The download lives in `src/fetch_data.py` (used by the tool and by the command line):
+  - At start the server checks the data and downloads what is missing in the background. A "Map data" pill at
+    the top shows the progress; after a failure it says "Retry" and a click tries again.
+  - A folder only counts when it is complete. A download goes to `.download/` first and becomes the real folder
+    only when it is whole; it is then marked with a `.complete` file. A folder without that mark (yours, from
+    before) is checked file by file: `.shp`, `.shx`, `.dbf` and the `.tif` against the length their own header
+    gives. Your folders pass and are marked on the first start; an empty or cut-off folder is downloaded again.
+  - An interrupted download continues where it stopped (HTTP Range; the Natural Earth server supports it).
+  - Generate, Import and the map image wait for the data inside their job (with progress in the log; Cancel
+    works); when the download fails they stop with "could not be downloaded … press Retry". Editing and export
+    never wait.
+  - `tests/first_start.py` (21 checks, 1 minute) covers the empty, half-downloaded and offline starts with a local
+    stand-in for Natural Earth. Also checked by hand: a real download from Natural Earth gives files identical to
+    yours, and a real resume after 30 MB. `server_safety.py` and `reference.py` still pass.
+  - Not checked: the pill in a browser (there is no browser on this machine).
 
 **Server bugs (fixed in PR 1)**
 1. The samples route served any file the server could read, without a login. Now it only serves sample sheets
@@ -195,7 +210,7 @@ server makes it fail, not hang.
 - [x] 2026-11-22: dotted pawn circles removed, Suez drawn over water, open seas without room for a pawn merged (no tile-less patches)
 - [x] 2026-11-22: license, credit, relative paths, setup docs tested in a fresh clone, Dutch ocean names
 - [x] 2026-11-22: the webtool edits the around-the-world arrows (drag, hide, close, size, colour)
-- [ ] Restructuring to webtool only: PRs 1–6 above (PRs 1 and 2 done)
+- [ ] Restructuring to webtool only: PRs 1–6 above (PRs 1–3 done)
 - [ ] Print proof: print part of the board at 100% and check the pawn size against the smallest tiles
 
 ## Current result (2026-11-22: 107 tiles, 29 seas, 12 mm pawn)
