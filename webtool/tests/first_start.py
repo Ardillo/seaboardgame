@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """First-start test: the map data download from an empty, a half-downloaded and an offline start.
 
-    ../.venv/bin/python tests/first_start.py --out ../out      (about 1 minute)
+    ../.venv/bin/python tests/first_start.py      (about 1 minute)
 
 Nothing is fetched from the internet: a small local web server stands in for Natural Earth. It serves zips made
 from your own data folder (the map image is replaced by a small TIFF, to keep it quick) and can be slow, cut a
@@ -11,10 +11,10 @@ Checks:
   - empty folders (the old bug: they counted as present) and a cut-off .shp or .tif count as missing
   - a complete folder from before (no mark) is kept and marked, not downloaded again
   - a download cut off half way: the folder does not appear; Retry continues where it stopped (HTTP Range)
-  - offline: the state says so; Import fails with a clear message; Retry works once back online
+  - offline: the state says so; Generate fails with a clear message; Retry works once back online
   - Cancel while a job waits for the data stops it at once
   - during a download, saving a design and Export keep working
-Needs ../out (the main board; --out) and the Natural Earth data, like Import.
+Needs the Natural Earth data (--data) and the design in designs/main (copied, never changed).
 """
 import argparse
 import io
@@ -143,16 +143,13 @@ def same_files(a, b, name):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", help="main board to import (default ../out)")
     ap.add_argument("--data", help="your Natural Earth folder (default: the one the web tool uses)")
     args = ap.parse_args()
     src = Path(args.data).resolve() if args.data else server.data_path(server.my_config())
-    if args.out:
-        server.MAIN_OUT = Path(args.out).resolve()
     if fetch_data.missing(src, fetch_data.TILES, mark=False):
         sys.exit(f"no complete Natural Earth data in {src}: pass --data")
-    if not (server.MAIN_OUT / "tiles/tiles.json").exists():
-        sys.exit(f"no main board in {server.MAIN_OUT}: pass --out")
+    if not (SAMPLE / "design.json").exists():
+        sys.exit(f"no design in {SAMPLE}")
     tmp = Path(tempfile.mkdtemp(prefix="seaboard-first-start-"))
     host = None
     base = f"http://127.0.0.1:{api_port()}/api"      # designs, runs and settings in a temporary folder
@@ -225,9 +222,9 @@ def main():
         check("offline: the state is error with a reason", st["state"] == "error" and st["error"], st)
         check("offline: no data folders appear", not any((d / n).exists() for n in fetch_data.DATASETS))
         server.data_path = lambda cfg: d
-        job = server.job_import_main("x")
+        job = server.job_generate("x", True)
         until(lambda: job.status != "running", 30)
-        check("offline: Import fails with a clear message",
+        check("offline: Generate fails with a clear message",
               job.status == "error" and "could not be downloaded" in (job.error or ""), job.error)
         host.use()
         st = run_fetch(d)
@@ -237,7 +234,7 @@ def main():
         d = tmp / "cancel"
         server.data_path = lambda cfg: d
         host.rate = 20_000
-        job = server.job_import_main("y")
+        job = server.job_generate("y", True)
         until(lambda: any("waiting for the map data" in x for x in job.log), 10)
         t = time.time()
         server.CURRENT_JOB[0].cancelled = True
@@ -249,11 +246,8 @@ def main():
         host.abort = True       # end the slow download from step 5
         until(lambda: not server.DATA.busy(), 30)
         host.abort = False
-        server.data_path = lambda cfg: full
         host.rate = None
-        job = server.job_import_main("a")
-        until(lambda: job.status != "running", 120)
-        check("import with complete data", job.status == "done", job.error)
+        shutil.copytree(SAMPLE, server.DESIGNS / "a", ignore=shutil.ignore_patterns("export"))
         d = tmp / "during"
         server.data_path = lambda cfg: d
         host.rate = 20_000      # a few minutes for everything
@@ -284,6 +278,7 @@ def main():
 
 
 API = [None]
+SAMPLE = server.WEB / "designs/main"        # a design to open, save and export
 
 
 def api_port():

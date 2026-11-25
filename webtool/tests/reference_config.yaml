@@ -1,9 +1,8 @@
-# Sea board configuration. All lengths in millimetres unless stated.
-# Every script reads this file; pass --config to use another one.
+# Default settings of the board tool. All lengths in millimetres unless stated.
+# Settings changed in the tool are kept in webtool/state/config.yaml; this file stays as it is.
 
 # Relative paths start at src/ (not at the current directory); absolute paths work too.
-output_dir: ../out            # everything generated lands here
-data_dir: ../data/natural_earth
+data_dir: ../data/natural_earth   # Natural Earth map data (downloaded at the first start)
 
 board:
   width_mm: 600
@@ -16,7 +15,7 @@ map:
   lat_south: -80
   # The map always fills the full board width. Height left over below the map
   # becomes the bottom panel (day track, legend). If the map is taller than
-  # the board the scripts stop and tell you to narrow the latitude range.
+  # the board, Generate stops and tells you to narrow the latitude range.
 
 tiles:
   count: 80                   # starting number of tiles; the refine rounds add or remove some
@@ -71,34 +70,20 @@ passages:
   - {name: Strait of Hormuz, kind: strait, enabled: true,  a: [55.6, 26.5],  b: [57.2, 25.6]}
 
 art:
-  dpi: 150                    # resolution of the map image (atlas and SDXL); upscaled to print dpi in compose
-  model: stabilityai/stable-diffusion-xl-base-1.0
-  strength: 0.40              # 0.2 = close to the real map, 0.6 = much more painterly (and less accurate)
-  steps: 30
-  guidance: 6.0
-  tile_px: 1024
-  overlap_px: 256
-  seed: 1234
-  prompt: >-
-    hand-painted illustrated world map, gouache and watercolor painting, realistic natural colors,
-    deep blue oceans with lighter turquoise shallows near the coasts, green forests, ochre deserts,
-    white ice, soft brush strokes, detailed painted texture, top-down view, board game art
-  negative_prompt: >-
-    text, letters, words, labels, numbers, watermark, signature, grid, lines, borders, frame,
-    compass rose, ships, people, photo, blurry, oversaturated, neon colors
+  dpi: 150                    # resolution of the map image; upscaled to print dpi in the export
 
 compose:
-  map_art: guide              # guide = Natural Earth atlas map (chosen 2026-11-22) | art = SDXL painting (make_art.py full)
+  map_art: true               # draw the map image (Natural Earth atlas map); false = plain blue sea
   print_dpi: 300
-  language: en                # en | nl  (after a change rerun make_tiles: it places the names)
+  language: en                # en | nl  (after a change make new tiles: they place the names)
   font: "DejaVu Serif"
   tile_border_mm: 0.5
   region_border_mm: 1.0
   border_color: "#f4ecd8"
   show_tile_numbers: true
   show_sea_names: true
-  ocean_label_mm: 6.0         # letter height of ocean names (rerun make_tiles)
-  sea_label_mm: 3.2           # letter height of sea names (rerun make_tiles)
+  ocean_label_mm: 6.0         # letter height of ocean names (needs new tiles)
+  sea_label_mm: 3.2           # letter height of sea names (needs new tiles)
 
 day_track:
   # The time slider: 5 workdays, then the weekend, in the bottom panel.
@@ -109,3 +94,13 @@ day_track:
   weekend_color: "#c8743a"
   text_color: "#f4ecd8"
   panel_color: "#16324a"
+
+webtool:                      # settings of the editor and the export only (the tile generator ignores them)
+  # Empty border around the map for fields (mm). The map shrinks to fit; make new tiles after changing
+  frame:
+    top: 0                    # frame above the map (mm)
+    right: 0                  # frame right of the map (mm)
+    bottom: 0                 # frame below the bottom panel (mm)
+    left: 0                   # frame left of the map (mm)
+  frame_color: "#16324a"      # colour of the frame
+  snap_mm: 1.0                # fields snap to this grid (mm); 0 = off

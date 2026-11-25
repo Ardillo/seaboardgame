@@ -5,12 +5,12 @@
     ../.venv/bin/python tests/reference.py --full     also the real board settings (5 more minutes, longer before PR 2)
     ../.venv/bin/python tests/reference.py --update   save new references (only after a change that SHOULD change the board)
 
-It runs the pipeline and the web tool on fixed settings (tests/reference_config.yaml, not ../src/config.yaml,
-so your own settings never break it) and compares fingerprints (SHA-256) of every output with
-tests/reference.json. It works in a temporary folder and leaves designs, settings and ../out alone.
+It runs the tile generator and the web tool on fixed settings (tests/reference_config.yaml, not the defaults in
+../src/config.yaml, so changed defaults never break it) and compares fingerprints (SHA-256) of every output with
+tests/reference.json. It works in a temporary folder and leaves designs and settings alone.
 
 Cases:
-  quick        5 tiles steps, 1 refine round: tiles, atlas map, pipeline board, web tool import + export
+  quick        4 relaxation steps, 1 refine round: tiles, map image, design, export
   no-wiggle    as quick without border noise: many exact ties in the tile search
   mix ...      eight more tile-only cases on unusual settings (MORE below): projection, resolution, pawn size,
                tile count, seed, centre longitude, wiggle
@@ -34,6 +34,7 @@ sys.dont_write_bytecode = True
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS.parent))
 import server  # noqa: E402
+import map_image  # noqa: E402  (server put ../src on the path)
 
 CONFIG = TESTS / "reference_config.yaml"
 REFERENCE = TESTS / "reference.json"
@@ -64,9 +65,9 @@ def sha_json(obj):
     return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:20]
 
 
-def pipeline(script, out, data, sets=(), extra=()):
-    """Run a pipeline script on the reference settings; `extra` are its own arguments (e.g. guide, --no-png)."""
-    args = [server.PY, str(server.SRC / script), *extra, "--config", str(CONFIG),
+def make_tiles(out, data, sets=()):
+    """Run the tile generator on the reference settings."""
+    args = [server.PY, str(server.SRC / "make_tiles.py"), "--config", str(CONFIG),
             "--set", f"output_dir={out}", "--set", f"data_dir={data}"]
     for s in sets:
         args += ["--set", s]
@@ -81,16 +82,18 @@ def finish(job):
 
 
 def web_tool(out, data, tmp):
-    """Import a pipeline output into the web tool and export it, in a temporary state."""
-    server.MAIN_OUT = out
-    server.MAIN_CONFIG = CONFIG
+    """Turn a generator run into a design and export it, in a temporary state."""
+    server.DEFAULTS = CONFIG
     server.STATE, server.DESIGNS, server.RUNS = tmp / "state", tmp / "designs", tmp / "runs"
     server.MY_CONFIG = server.STATE / "config.yaml"      # none: only the reference settings
     server.data_path = lambda cfg: Path(data)
-    finish(server.job_import_main("ref"))
+    tj = json.loads((out / "tiles/tiles.json").read_text())
+    frame = {"top": 0, "right": 0, "bottom": 0, "left": 0}
+    server.build_design(server.Job("design", "design"), "ref", out, server.my_config(), frame,
+                        float(tj["board"]["width_mm"]), float(tj["board"]["height_mm"]), "reference")
     d = server.DESIGNS / "ref"
     design = json.loads((d / "design.json").read_text())
-    for key in ("created", "modified", "source"):       # time and temporary paths
+    for key in ("created", "modified", "source"):       # time
         design.pop(key, None)
     finish(server.job_export("ref", False))
     exp = d / "export"
@@ -118,14 +121,14 @@ def main():
             print(f"{name} ({' '.join(CASES[name]) or 'reference settings'})", flush=True)
             out = tmp / name
             t = time.time()
-            pipeline("make_tiles.py", out, data, CASES[name])
+            make_tiles(out, data, CASES[name])
             got = {f: sha(out / f) for f in TILE_FILES}
             print(f"  tiles: {time.time() - t:.0f} s", flush=True)
             if name == "quick":
-                pipeline("make_art.py", out, data, extra=["guide"])
+                cfg = server.load_yaml(CONFIG)
+                (out / "art").mkdir()
+                map_image.make_map_image(cfg, data, out / "art/guide.png")
                 got["art/guide.png"] = sha(out / "art/guide.png")
-                pipeline("compose_board.py", out, data, extra=["--no-png"])
-                got["board/board.svg"] = sha(out / "board/board.svg")
                 got.update(web_tool(out, data, tmp / "web"))
             results[name] = got
     finally:

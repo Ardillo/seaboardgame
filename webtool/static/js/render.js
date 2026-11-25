@@ -1,6 +1,6 @@
 // Canvas view: pan/zoom, a raster overlay for tiles, and vector layers drawn on top.
-// The board layers (order, sizes, colours) are those of ../src/compose_board.py plus the export in
-// server.py. A change there belongs here as well.
+// The board layers (order, sizes, colours) are those of the export (compose.py). A change there belongs
+// here as well.
 import { passagePoints } from "./design.js";
 
 export function hexToRgb(hex) {
@@ -190,7 +190,7 @@ export class View {
     ctx.translate(fr.left, fr.top);
     ctx.fillStyle = cfg.day_track.panel_color;
     ctx.fillRect(0, 0, iw, ih);
-    if (c.map_art !== "none" && this.art) ctx.drawImage(this.art, 0, 0, iw, MH);
+    if (c.map_art && this.art) ctx.drawImage(this.art, 0, 0, iw, MH);
     else { ctx.fillStyle = "#3d6f93"; ctx.fillRect(0, 0, iw, MH); }
     ctx.imageSmoothingEnabled = this.scale * (iw / d.W) < 1.5;
     ctx.drawImage(this.overlay, 0, 0, iw, MH);

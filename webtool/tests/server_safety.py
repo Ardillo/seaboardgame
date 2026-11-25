@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Server safety test: requests that must not read or overwrite anything they should not.
 
-    ../.venv/bin/python tests/server_safety.py      (about 20 seconds)
+    ../.venv/bin/python tests/server_safety.py      (about 1 minute)
 
-It starts the server on a free local port with designs, runs and settings in a temporary folder, imports the
-main board (../out) twice and tries:
-  - reading a file outside the tool through the samples route
+It starts the server on a free local port with designs, runs and settings in a temporary folder, copies the design
+in designs/main into it and tries:
+  - reading a file outside the tool through the old samples route (it is gone)
   - design names that point outside designs/ ("..", ".", ".hidden")
   - creating a design by saving to a name that does not exist
-  - importing or generating into an existing design without asking (it must be refused; with replace it works)
+  - generating into an existing design without asking (it must be refused; with replace it works)
   - a design whose run_dir points outside work/runs
   - Cancel right after Generate, and Cancel while the generator runs: both must stop the job within seconds
-Needs ../out (the main board) and the Natural Earth data, like Import.
+Generate runs on small, coarse settings here (seconds). Needs the Natural Earth data (--data).
 Every wait has a time limit: a job that does not end in time fails its check and is stopped, so the test
 never hangs and leaves nothing running.
 """
@@ -58,22 +58,22 @@ def finish(job, limit=60):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", help="main board to import (default ../out)")
     ap.add_argument("--data", help="Natural Earth folder (default: the one the web tool uses)")
     args = ap.parse_args()
     tmp = Path(tempfile.mkdtemp(prefix="seaboard-safety-"))
     try:
-        if args.out:
-            server.MAIN_OUT = Path(args.out).resolve()
         if args.data:
             data = Path(args.data).resolve()
             server.data_path = lambda cfg: data
-        if not (server.MAIN_OUT / "tiles/tiles.json").exists():
-            sys.exit(f"no main board in {server.MAIN_OUT}: pass --out")
+        sample = server.WEB / "designs/main"
+        if not (sample / "design.json").exists():
+            sys.exit(f"no design in {sample}")
         server.STATE, server.DESIGNS, server.RUNS = tmp / "state", tmp / "designs", tmp / "runs"
         server.MY_CONFIG = server.STATE / "config.yaml"
         for p in (server.STATE, server.DESIGNS, server.RUNS):
             p.mkdir(parents=True)
+        # quick tiles: a Generate takes seconds
+        server.MY_CONFIG.write_text("tiles: {lloyd_iterations: 4, refine_rounds: 1, raster_px_per_mm: 2}\n")
         secret = tmp / "secret.txt"
         secret.write_text("SECRET")
         server.Handler.log_message = lambda *a: None
@@ -96,11 +96,12 @@ def main():
             return code, body
 
         q = lambda s: urllib.parse.quote(s, safe="")        # noqa: E731
-        code, _ = job({"kind": "import", "name": "a"})
-        check("import into a new name", code == 200 and server.CURRENT_JOB[0].status == "done")
+        code, _ = job({"kind": "generate", "name": "a", "guide": False})
+        check("generate into a new name", code == 200 and server.CURRENT_JOB[0].status == "done")
         design = server.DESIGNS / "a/design.json"
+        shutil.copytree(sample, server.DESIGNS / "main", ignore=shutil.ignore_patterns("export"))
 
-        # 1. reading files through the samples route
+        # 1. reading files through the old samples route
         meta = json.loads(design.read_text())
         for run_dir in (str(tmp), "../../..", str(server.RUNS / "r1")):
             meta["run_dir"] = run_dir
@@ -109,12 +110,7 @@ def main():
                 code, body = call("GET", f"designs/a/samples/{q(name)}")
                 check(f"samples: no file via run_dir={run_dir!r}, name={name!r}", b"SECRET" not in body and code >= 400,
                       f"HTTP {code}")
-        sheet = server.RUNS / "r1/art/samples/x_sheet.jpg"
-        sheet.parent.mkdir(parents=True)
-        sheet.write_bytes(b"JPEG")
-        code, body = call("GET", "designs/a/samples/x_sheet.jpg")
-        check("samples: a real sample sheet is still served", code == 200 and body == b"JPEG", f"HTTP {code}")
-        check("art jobs never use a run_dir outside work/runs",
+        check("map image jobs never use a run_dir outside work/runs",
               server.RUNS.resolve() in server.design_run_dir({**meta, "run_dir": str(tmp)}).resolve().parents)
 
         # 2. names that leave designs/
@@ -125,8 +121,8 @@ def main():
                 route = "copy to it" if "copy" in path else "labels" if path.endswith("/labels") else "design"
                 check(f"name {bad!r}: {method} {route} refused", code == 400,
                       f"HTTP {code}")
-            code, _ = job({"kind": "import", "name": bad})
-            check(f"name {bad!r}: import refused", code == 400, f"HTTP {code}")
+            code, _ = job({"kind": "generate", "name": bad})
+            check(f"name {bad!r}: generate refused", code == 400, f"HTTP {code}")
         check("nothing written next to designs/", sorted(p.name for p in tmp.iterdir())
               == ["designs", "runs", "secret.txt", "state"], sorted(p.name for p in tmp.iterdir()))
 
@@ -140,20 +136,17 @@ def main():
         meta["note"] = "MY EDITS"
         design.write_text(json.dumps(meta))
         before = design.read_text()
-        code, body = job({"kind": "import", "name": "a"})
-        check("import into an existing design is refused", code == 409 and design.read_text() == before,
-              f"HTTP {code} {body[:80]}")
         running = server.CURRENT_JOB[0]
         code, body = call("POST", "jobs", {"kind": "generate", "name": "a"})
         check("generate into an existing design is refused before it starts",
               code == 409 and server.CURRENT_JOB[0] is running and design.read_text() == before, f"HTTP {code}")
-        if server.CURRENT_JOB[0] is not running:        # it did start (a broken server): stop it, it takes minutes
+        if server.CURRENT_JOB[0] is not running:        # it did start (a broken server): stop it
             call("POST", "jobs/cancel")
             finish(server.CURRENT_JOB[0], limit=30)
         stalled = threading.Event()
         real_build = server.build_design
-        server.build_design = lambda *a, **k: (stalled.wait(10), real_build(*a, **k))[1]
-        code, _ = call("POST", "jobs", {"kind": "import", "name": "a", "replace": True})
+        server.build_design = lambda *a, **k: (stalled.wait(60), real_build(*a, **k))[1]
+        code, _ = call("POST", "jobs", {"kind": "generate", "name": "a", "guide": False, "replace": True})
         put_meta, _ = call("PUT", "designs/a", json.loads(before))
         put_labels, _ = call("PUT", "designs/a/labels", {"x": 1})
         stalled.set()
@@ -161,11 +154,13 @@ def main():
         server.build_design = real_build
         check("no saving into a design while a job replaces it", code == 200 and put_meta == 409 and put_labels == 409,
               f"HTTP {code}, saves {put_meta} {put_labels}")
-        code, _ = job({"kind": "import", "name": "a", "replace": True})
-        check("with replace it is replaced", code == 200 and server.CURRENT_JOB[0].status == "done"
-              and "MY EDITS" not in design.read_text(), f"HTTP {code}")
-        code, _ = job({"kind": "import", "name": "b", "replace": True})
+        check("with replace it is replaced", server.CURRENT_JOB[0].status == "done"
+              and "MY EDITS" not in design.read_text(), server.CURRENT_JOB[0].status)
+        code, _ = job({"kind": "generate", "name": "b", "guide": False, "replace": True})
         check("replace on a new name just makes it", code == 200 and (server.DESIGNS / "b/design.json").exists())
+        code, _ = job({"kind": "export", "name": "main"})
+        check("the copied design exports", code == 200 and server.CURRENT_JOB[0].status == "done"
+              and (server.DESIGNS / "main/export/board.pdf").exists(), server.CURRENT_JOB[0].error)
 
         # 5. Cancel stops a job, also in its first moment (before the generator has started)
         code, _ = call("POST", "jobs", {"kind": "generate", "name": "cancel-at-once"})
